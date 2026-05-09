@@ -2,6 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useState } from "react";
+import { authRedirectUrl } from "@/lib/authRedirect";
 import { getSupabase } from "@/lib/supabase";
 
 export default function LoginPage() {
@@ -21,7 +22,7 @@ export default function LoginPage() {
     if (mode === "forgot") {
       setLoading(true);
       const { error } = await getSupabase().auth.resetPasswordForEmail(email, {
-        redirectTo: `${window.location.origin}/reset-password`,
+        redirectTo: authRedirectUrl("/reset-password"),
       });
       setLoading(false);
       if (error) {
@@ -40,7 +41,13 @@ export default function LoginPage() {
     const { error } =
       mode === "signin"
         ? await sb.auth.signInWithPassword({ email, password })
-        : await sb.auth.signUp({ email, password });
+        : await sb.auth.signUp({
+            email,
+            password,
+            options: {
+              emailRedirectTo: authRedirectUrl("/"),
+            },
+          });
     setLoading(false);
     if (error) {
       setError(error.message);
