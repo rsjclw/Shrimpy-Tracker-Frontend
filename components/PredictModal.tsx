@@ -116,6 +116,15 @@ export function PredictModal({
   const [error, setError] = useState<string | null>(null);
   const [prevDayFI, setPrevDayFI] = useState<number | null>(null);
   const [predictionBaseline, setPredictionBaseline] = useState<PredictionBaseline | null>(null);
+  const defaultTargetDoc = cycle.planned_end_date
+    ? differenceInDays(parseISO(cycle.planned_end_date), parseISO(cycle.start_date)) + 1
+    : "";
+  const [targetDocDraft, setTargetDocDraft] = useState(
+    defaultTargetDoc === "" ? "" : String(defaultTargetDoc),
+  );
+  const [feedingIndexIncrementDraft, setFeedingIndexIncrementDraft] = useState(
+    Number(cycle.feeding_index_increment).toFixed(3),
+  );
   const [maximumFeedingIndexDraft, setMaximumFeedingIndexDraft] = useState(
     cycle.maximum_feeding_index ? Number(cycle.maximum_feeding_index).toFixed(3) : "",
   );
@@ -133,7 +142,7 @@ export function PredictModal({
       ? (totalDailyFeedKg / (estimatedPopulation / 100000)) / startDoc
       : NaN;
 
-  const feedingIndexIncrement = Number(cycle.feeding_index_increment);
+  const feedingIndexIncrement = Number(feedingIndexIncrementDraft);
 
   useEffect(() => {
     if (Number.isFinite(currentFeedingIndex) || startDoc <= 1) return;
@@ -167,20 +176,22 @@ export function PredictModal({
 
   const maximumFeedingIndex = optionalPositiveNumber(maximumFeedingIndexDraft);
   const maximumDailyFeedKg = optionalPositiveNumber(maximumDailyFeedKgDraft);
-
-  const targetDoc = cycle.planned_end_date
-    ? differenceInDays(parseISO(cycle.planned_end_date), parseISO(cycle.start_date)) + 1
-    : null;
+  const targetDocNumber = Number(targetDocDraft);
+  const targetDoc = Number.isInteger(targetDocNumber) && targetDocNumber >= 1
+    ? targetDocNumber
+    : Number.NaN;
 
   const fcr = Number(fcrDraft);
 
   const preview = useMemo(() => {
     if (
-      targetDoc === null ||
+      Number.isNaN(targetDoc) ||
       estimatedPopulation <= 0 ||
       predictionBaseline === null ||
       !Number.isFinite(fcr) ||
       fcr <= 0 ||
+      !Number.isFinite(feedingIndexIncrement) ||
+      feedingIndexIncrement <= 0 ||
       Number.isNaN(maximumFeedingIndex) ||
       Number.isNaN(maximumDailyFeedKg)
     ) {
@@ -240,6 +251,8 @@ export function PredictModal({
     preview.days.length > 0 &&
     Number.isFinite(fcr) &&
     fcr > 0 &&
+    Number.isFinite(feedingIndexIncrement) &&
+    feedingIndexIncrement > 0 &&
     !Number.isNaN(maximumFeedingIndex) &&
     !Number.isNaN(maximumDailyFeedKg);
 
@@ -257,15 +270,21 @@ export function PredictModal({
           </button>
         </div>
 
-        {targetDoc === null && (
+        {defaultTargetDoc === "" && (
           <p className="rounded border border-amber-200 bg-amber-50 p-3 text-sm text-amber-700">
-            No planned end date set for this cycle. Edit the cycle to add one before predicting.
+            No planned end date set for this cycle. Enter a target DOC to predict.
           </p>
         )}
 
-        {targetDoc !== null && targetDoc < startDoc && (
+        {Number.isNaN(targetDoc) && targetDocDraft.trim() && (
           <p className="rounded border border-red-200 bg-red-50 p-3 text-sm text-red-600">
-            The planned end date (DOC {targetDoc}) is before the current day (DOC {startDoc}).
+            Target DOC must be a whole number.
+          </p>
+        )}
+
+        {!Number.isNaN(targetDoc) && targetDoc < startDoc && (
+          <p className="rounded border border-red-200 bg-red-50 p-3 text-sm text-red-600">
+            The target DOC ({targetDoc}) is before the current day (DOC {startDoc}).
           </p>
         )}
 
@@ -275,17 +294,49 @@ export function PredictModal({
           </p>
         )}
 
-        {!Number.isFinite(currentFeedingIndex) && (
+        {!Number.isFinite(currentFeedingIndex) && Number.isFinite(feedingIndexIncrement) && (
           <p className="rounded border border-slate-200 bg-slate-50 p-3 text-sm text-slate-500">
             No feedings logged today — prediction will start from the first increment ({feedingIndexIncrement.toFixed(3)}).
           </p>
         )}
 
-        {targetDoc !== null && targetDoc >= startDoc && estimatedPopulation > 0 && (
+        {estimatedPopulation > 0 && (Number.isNaN(targetDoc) ? targetDocDraft.trim() === "" : targetDoc >= startDoc) && (
           <>
             <div className="text-sm text-slate-600">
-              Generating DOC <strong>{startDoc}</strong> → DOC <strong>{targetDoc}</strong>
-              {" "}({targetDoc - startDoc + 1} days)
+              Generating DOC <strong>{startDoc}</strong>
+              {!Number.isNaN(targetDoc) && (
+                <>
+                  {" "}to DOC <strong>{targetDoc}</strong>
+                  {" "}({targetDoc - startDoc + 1} days)
+                </>
+              )}
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <label className="block text-sm">
+                Target DOC
+                <input
+                  type="number"
+                  step="1"
+                  min={startDoc}
+                  value={targetDocDraft}
+                  onChange={(e) => setTargetDocDraft(e.target.value)}
+                  placeholder="DOC"
+                  className="mt-1 w-full border rounded px-3 py-2"
+                  autoFocus
+                />
+              </label>
+              <label className="block text-sm">
+                Index increment
+                <input
+                  type="number"
+                  step="0.001"
+                  min="0.001"
+                  value={feedingIndexIncrementDraft}
+                  onChange={(e) => setFeedingIndexIncrementDraft(e.target.value)}
+                  className="mt-1 w-full border rounded px-3 py-2"
+                />
+              </label>
             </div>
 
             <label className="block text-sm">
@@ -297,7 +348,6 @@ export function PredictModal({
                 value={fcrDraft}
                 onChange={(e) => setFcrDraft(e.target.value)}
                 className="mt-1 w-full border rounded px-3 py-2"
-                autoFocus
               />
             </label>
 
@@ -334,8 +384,14 @@ export function PredictModal({
               </p>
             )}
 
+            {(!Number.isFinite(feedingIndexIncrement) || feedingIndexIncrement <= 0) && (
+              <p className="rounded border border-red-200 bg-red-50 p-3 text-sm text-red-600">
+                Feeding index increment must be a positive number.
+              </p>
+            )}
+
             {preview && (
-              <div className="grid grid-cols-3 gap-3 text-sm">
+              <div className="grid grid-cols-2 gap-3 text-sm">
                 <div className="rounded-lg border border-slate-200 p-3">
                   <div className="text-xs text-slate-500">Total feed</div>
                   <div className="font-semibold">
@@ -346,20 +402,14 @@ export function PredictModal({
                   <div className="text-xs text-slate-500">Final ABW</div>
                   <div className="font-semibold">{preview.finalAbwG.toFixed(2)} g</div>
                 </div>
-                <div className="rounded-lg border border-slate-200 p-3">
-                  <div className="text-xs text-slate-500">Final FI</div>
-                  <div className="font-semibold">
-                    {preview.days.length > 0
-                      ? preview.days[preview.days.length - 1].feedingIndex.toFixed(3)
-                      : "—"}
-                  </div>
-                </div>
               </div>
             )}
 
             <p className="text-xs text-amber-600">
               ⚠ Existing daily data from DOC {startDoc} onward will be cleared before prediction is written.
-              DOC {targetDoc} is treated as harvest day, so no feed will be added that day.
+              {!Number.isNaN(targetDoc) && (
+                <> DOC {targetDoc} is treated as harvest day, so no feed will be added that day.</>
+              )}
             </p>
 
             {error && (
@@ -388,17 +438,6 @@ export function PredictModal({
           </>
         )}
 
-        {targetDoc === null && (
-          <div className="flex justify-end">
-            <button
-              type="button"
-              onClick={onClose}
-              className="border px-4 py-2 rounded text-sm hover:bg-slate-50"
-            >
-              Close
-            </button>
-          </div>
-        )}
       </div>
     </div>
   );
