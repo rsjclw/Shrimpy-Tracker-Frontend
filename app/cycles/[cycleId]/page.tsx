@@ -1,6 +1,6 @@
 "use client";
 
-import { addDays, format, parseISO } from "date-fns";
+import { addDays, differenceInDays, format, parseISO } from "date-fns";
 import Link from "next/link";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -147,8 +147,10 @@ export default function CyclePage() {
     reload();
   }
 
-  if (!cycle || !day || day.date !== date) return <main className="p-6">Loading...</main>;
+  if (!cycle) return <main className="p-6">Loading...</main>;
 
+  const currentDay = day?.date === date ? day : null;
+  const selectedDoc = differenceInDays(parseISO(date), parseISO(cycle.start_date)) + 1;
   const farmId = grids.find((grid) => grid.id === pond?.grid_id)?.farm_id;
   const role = farms.find((farm) => farm.id === farmId)?.role ?? null;
   const allowAdd = canAdd(role);
@@ -175,29 +177,35 @@ export default function CyclePage() {
       <DateNavigator
         date={date}
         onChange={changeDate}
-        doc={day.metrics.doc}
+        doc={currentDay?.metrics.doc ?? selectedDoc}
         startDate={cycle.start_date}
-        onPredict={allowAdd ? () => setShowPredict(true) : undefined}
+        onPredict={allowAdd && currentDay ? () => setShowPredict(true) : undefined}
       />
 
-      {showPredict && (
+      {showPredict && currentDay && (
         <PredictModal
           cycle={cycle}
-          day={day}
+          day={currentDay}
           onClose={() => setShowPredict(false)}
           onComplete={() => { setShowPredict(false); reload(); }}
         />
       )}
 
+      {!currentDay ? (
+        <section className="rounded-lg bg-white p-4 text-sm text-slate-500 shadow">
+          Loading daily data...
+        </section>
+      ) : (
+      <>
       <FeedingTable
-        dailyLogId={day.daily_log_id}
-        feedings={day.feedings}
+        dailyLogId={currentDay.daily_log_id}
+        feedings={currentDay.feedings}
         previousDay={previousDay}
         additives={additives}
         feedTypes={feedTypes}
-        defaultFeedTypes={day.default_feed_types}
-        doc={day.metrics.doc}
-        estimatedPopulation={day.metrics.estimated_population}
+        defaultFeedTypes={currentDay.default_feed_types}
+        doc={currentDay.metrics.doc}
+        estimatedPopulation={currentDay.metrics.estimated_population}
         feedingIndexIncrement={Number(cycle.feeding_index_increment)}
         maximumFeedingIndex={cycle.maximum_feeding_index ? Number(cycle.maximum_feeding_index) : null}
         canAdd={allowAdd}
@@ -205,11 +213,11 @@ export default function CyclePage() {
         onChange={reload}
       />
 
-      <DailyMetricsCard cycleId={cycleId} metrics={day.metrics} />
+      <DailyMetricsCard cycleId={cycleId} metrics={currentDay.metrics} />
 
       <HarvestCard
-        dailyLogId={day.daily_log_id}
-        harvests={day.harvests}
+        dailyLogId={currentDay.daily_log_id}
+        harvests={currentDay.harvests}
         canAdd={allowAdd}
         canManage={allowManage}
         onChange={reload}
@@ -217,15 +225,15 @@ export default function CyclePage() {
 
       <WaterParametersCard
         cycleId={cycleId}
-        dailyLogId={day.daily_log_id}
-        water={day.water}
+        dailyLogId={currentDay.daily_log_id}
+        water={currentDay.water}
         canManage={allowManage}
         onChange={reload}
       />
 
       <TreatmentsTimeline
-        dailyLogId={day.daily_log_id}
-        treatments={day.treatments}
+        dailyLogId={currentDay.daily_log_id}
+        treatments={currentDay.treatments}
         canAdd={allowAdd}
         canManage={allowManage}
         onChange={reload}
@@ -259,28 +267,28 @@ export default function CyclePage() {
             <div className="rounded-lg border border-slate-200 p-3">
               <div className="text-xs text-slate-500">ADG</div>
               <div className="text-lg font-semibold">
-                {day.sampling.adg_g_per_day ? `${day.sampling.adg_g_per_day} g/day` : "-"}
+                {currentDay.sampling.adg_g_per_day ? `${currentDay.sampling.adg_g_per_day} g/day` : "-"}
               </div>
             </div>
             <div className="rounded-lg border border-slate-200 p-3">
               <div className="text-xs text-slate-500">ABW gain</div>
               <div className="text-lg font-semibold">
-                {day.sampling.abw_gain_g
-                  ? `${Number(day.sampling.abw_gain_g).toFixed(3)} g`
+                {currentDay.sampling.abw_gain_g
+                  ? `${Number(currentDay.sampling.abw_gain_g).toFixed(3)} g`
                   : "-"}
               </div>
             </div>
             <div className="rounded-lg border border-slate-200 p-3">
               <div className="text-xs text-slate-500">Feed since previous sample time</div>
               <div className="text-lg font-semibold">
-                {day.sampling.feed_since_previous_sample_kg
-                  ? `${Number(day.sampling.feed_since_previous_sample_kg).toFixed(2)} kg`
+                {currentDay.sampling.feed_since_previous_sample_kg
+                  ? `${Number(currentDay.sampling.feed_since_previous_sample_kg).toFixed(2)} kg`
                   : "-"}
               </div>
             </div>
             <div className="rounded-lg border border-slate-200 p-3">
               <div className="text-xs text-slate-500">Sample FCR</div>
-              <div className="text-lg font-semibold">{day.sampling.sample_fcr ?? "-"}</div>
+              <div className="text-lg font-semibold">{currentDay.sampling.sample_fcr ?? "-"}</div>
             </div>
           </div>
           <div className="flex gap-2">
@@ -328,6 +336,8 @@ export default function CyclePage() {
           </div>
         </form>
       </section>
+      )}
+      </>
       )}
     </main>
   );
