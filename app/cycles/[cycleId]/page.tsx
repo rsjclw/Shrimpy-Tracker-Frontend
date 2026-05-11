@@ -1,5 +1,6 @@
 "use client";
 
+import { addDays, format, parseISO } from "date-fns";
 import Link from "next/link";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
@@ -40,6 +41,7 @@ export default function CyclePage() {
   const [grids, setGrids] = useState<Grid[]>([]);
   const [date, setDate] = useState(isIsoDate(queryDate) ? queryDate! : todayIso());
   const [day, setDay] = useState<DayView | null>(null);
+  const [previousDay, setPreviousDay] = useState<DayView | null>(null);
   const [additives, setAdditives] = useState<FeedAdditive[]>([]);
   const [feedTypes, setFeedTypes] = useState<FeedType[]>([]);
   const [showPredict, setShowPredict] = useState(false);
@@ -94,7 +96,13 @@ export default function CyclePage() {
     if (!v.daily_log_id) {
       v = await api.upsertCycleDay(cycleId, date, {});
     }
+    let previous: DayView | null = null;
+    if (v.metrics.doc > 1) {
+      const previousDate = format(addDays(parseISO(date), -1), "yyyy-MM-dd");
+      previous = await api.getCycleDay(cycleId, previousDate).catch(() => null);
+    }
     setDay(v);
+    setPreviousDay(previous);
     setNoteDraft(v.notes ?? "");
     setAbwDraft(v.abw_g ?? "");
     setAbwSampleTimeDraft(v.abw_sample_time ? v.abw_sample_time.slice(0, 5) : "05:00");
@@ -181,6 +189,7 @@ export default function CyclePage() {
       <FeedingTable
         dailyLogId={day.daily_log_id}
         feedings={day.feedings}
+        previousDay={previousDay}
         additives={additives}
         feedTypes={feedTypes}
         defaultFeedTypes={day.default_feed_types}
