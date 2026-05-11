@@ -4,6 +4,7 @@ import { addDays, differenceInDays, format, parseISO } from "date-fns";
 import { useEffect, useMemo, useState } from "react";
 
 import { api, type BatchImportDay, type Cycle, type DayView } from "@/lib/api";
+import { roundFeedKg } from "@/lib/format";
 
 type PredictionDay = {
   date: string;
@@ -12,10 +13,6 @@ type PredictionDay = {
   dailyFeedKg: number;
   feedings: { feed_time: string; amount_kg: number }[];
 };
-
-function round3(x: number): number {
-  return Math.round(x * 1000) / 1000;
-}
 
 function round4(x: number): number {
   return Math.round(x * 10000) / 10000;
@@ -67,10 +64,10 @@ function computePrediction(params: {
       feedingIndex: fi,
       dailyFeedKg,
       feedings: [
-        { feed_time: "06:00", amount_kg: round3(dailyFeedKg * 0.25) },
-        { feed_time: "10:00", amount_kg: round3(dailyFeedKg * 0.30) },
-        { feed_time: "14:00", amount_kg: round3(dailyFeedKg * 0.30) },
-        { feed_time: "18:00", amount_kg: round3(dailyFeedKg * 0.15) },
+        { feed_time: "06:00", amount_kg: roundFeedKg(dailyFeedKg * 0.25) },
+        { feed_time: "10:00", amount_kg: roundFeedKg(dailyFeedKg * 0.30) },
+        { feed_time: "14:00", amount_kg: roundFeedKg(dailyFeedKg * 0.30) },
+        { feed_time: "18:00", amount_kg: roundFeedKg(dailyFeedKg * 0.15) },
       ],
     });
 

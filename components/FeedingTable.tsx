@@ -37,7 +37,7 @@ function emptyDraft(feedTypes: FeedingFeedType[] = []): FeedingDraft {
 function feedingToDraft(f: Feeding): FeedingDraft {
   return {
     feed_time: f.feed_time.slice(0, 5),
-    amount_kg: Number(f.amount_kg).toFixed(2),
+    amount_kg: formatFeedKg(f.amount_kg),
     duration_min: f.duration_min?.toString() ?? "",
     additives: f.additives,
     feed_types: f.feed_types,
@@ -263,7 +263,7 @@ export function FeedingTable({
     }
     await api.createFeeding(dailyLogId, {
       feed_time: draft.feed_time,
-      amount_kg: Number(draft.amount_kg),
+      amount_kg: roundFeedKg(Number(draft.amount_kg)),
       duration_min: draft.duration_min ? Number(draft.duration_min) : undefined,
       additives: draft.additives,
       feed_types: draft.feed_types,
@@ -282,7 +282,7 @@ export function FeedingTable({
     }
     await api.updateFeeding(id, {
       feed_time: editDraft.feed_time,
-      amount_kg: editDraft.amount_kg as never,
+      amount_kg: roundFeedKg(Number(editDraft.amount_kg)) as never,
       duration_min: editDraft.duration_min ? Number(editDraft.duration_min) : undefined,
       additives: editDraft.additives,
       feed_types: editDraft.feed_types,
@@ -415,7 +415,7 @@ export function FeedingTable({
                           Amount (kg)
                           <input
                             type="number"
-                            step="0.01"
+                            step="0.1"
                             required
                             value={editDraft.amount_kg}
                             onChange={(e) => setEditDraft({ ...editDraft, amount_kg: e.target.value })}
@@ -513,7 +513,7 @@ export function FeedingTable({
                       (sum, session) => sum + session.amount_kg,
                       0,
                     ) ?? Number.NaN,
-                    2,
+                    1,
                   )} kg`}
               {" - "}
               Adjusted index:{" "}
@@ -541,14 +541,14 @@ export function FeedingTable({
               Amount (kg)
               <input
                 type="number"
-                step="0.01"
+                step="0.1"
                 required={!indexDraft.trim()}
                 disabled={!!indexDraft.trim()}
                 value={
                   indexDraft.trim()
                     ? roundedSessionsFromIndex(indexDraft)
                         ?.reduce((sum, session) => sum + session.amount_kg, 0)
-                        .toFixed(2) ?? ""
+                        .toFixed(1) ?? ""
                     : draft.amount_kg
                 }
                 onChange={(e) => setDraft({ ...draft, amount_kg: e.target.value })}

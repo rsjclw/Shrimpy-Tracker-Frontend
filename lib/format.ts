@@ -5,11 +5,11 @@ export function formatNumber(value: number, digits: number): string {
 }
 
 export function roundFeedKg(value: number): number {
-  return Math.round(value * 100) / 100;
+  return Math.round(value * 10) / 10;
 }
 
 export function formatFeedKg(value: string | number): string {
-  return Number(value).toFixed(2);
+  return Number(value).toFixed(1);
 }
 
 export function formatFeedTypeName(feedType: Pick<FeedingFeedType, "brand" | "type">): string {
