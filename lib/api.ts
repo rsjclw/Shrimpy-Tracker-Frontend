@@ -189,6 +189,11 @@ export type BatchImportResult = {
   feedings_deleted: number;
   abw_samples_written: number;
 };
+export type PredictionBaseline = {
+  previous_biomass_kg: string;
+  feed_since_previous_sample_start_kg: string;
+  estimated_population: number;
+};
 
 // ---- Endpoints ----
 export const api = {
@@ -280,6 +285,10 @@ export const api = {
   getCycleTrend: (cycleId: string, metric: string, from: string, to: string) =>
     request<TrendSeries>(
       `/cycles/${cycleId}/trends?metric=${metric}&from=${from}&to=${to}`,
+    ),
+  getPredictionBaseline: (cycleId: string, startDate: string) =>
+    request<PredictionBaseline>(
+      `/cycles/${cycleId}/prediction-baseline?start_date=${startDate}`,
     ),
   createSample: (cycleId: string, b: { date: string; population: number; method?: string }) =>
     request(`/cycles/${cycleId}/samples`, { method: "POST", body: JSON.stringify(b) }),

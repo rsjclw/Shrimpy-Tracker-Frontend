@@ -3,7 +3,7 @@
 import { addDays, differenceInDays, format, parseISO } from "date-fns";
 import { useEffect, useMemo, useState } from "react";
 
-import { api, type BatchImportDay, type Cycle, type DayView } from "@/lib/api";
+import { api, type BatchImportDay, type Cycle, type DayView, type PredictionBaseline } from "@/lib/api";
 import { roundFeedKg } from "@/lib/format";
 
 type PredictionDay = {
@@ -27,7 +27,8 @@ function computePrediction(params: {
   maximumFeedingIndex: number | null;
   maximumDailyFeedKg: number | null;
   estimatedPopulation: number;
-  startingBiomassKg: number;
+  previousSampleBiomassKg: number;
+  feedSincePreviousSampleStartKg: number;
   fcrAssumption: number;
 }): { days: PredictionDay[]; totalFeedKg: number; finalAbwG: number } {
   const {
@@ -39,7 +40,8 @@ function computePrediction(params: {
     maximumFeedingIndex,
     maximumDailyFeedKg,
     estimatedPopulation,
-    startingBiomassKg,
+    previousSampleBiomassKg,
+    feedSincePreviousSampleStartKg,
     fcrAssumption,
   } = params;
   const days: PredictionDay[] = [];
@@ -47,38 +49,50 @@ function computePrediction(params: {
   let totalFeedKg = 0;
 
   for (let doc = startDoc; doc <= targetDoc; doc++) {
-    const fi = maximumFeedingIndex !== null
+    const isHarvestDay = doc === targetDoc;
+    const fi = isHarvestDay
+      ? 0
+      : maximumFeedingIndex !== null
       ? Math.min(currentFI, maximumFeedingIndex)
       : currentFI;
 
     const rawFeedKg = fi * doc * (estimatedPopulation / 100000);
-    const dailyFeedKg = maximumDailyFeedKg !== null
+    const dailyFeedKg = isHarvestDay
+      ? 0
+      : maximumDailyFeedKg !== null
       ? Math.min(rawFeedKg, maximumDailyFeedKg)
       : rawFeedKg;
 
     const date = format(addDays(parseISO(startDate), doc - 1), "yyyy-MM-dd");
+    const feedings = isHarvestDay
+      ? []
+      : [
+          { feed_time: "06:00", amount_kg: roundFeedKg(dailyFeedKg * 0.25) },
+          { feed_time: "10:00", amount_kg: roundFeedKg(dailyFeedKg * 0.30) },
+          { feed_time: "14:00", amount_kg: roundFeedKg(dailyFeedKg * 0.30) },
+          { feed_time: "18:00", amount_kg: roundFeedKg(dailyFeedKg * 0.15) },
+        ];
+    const roundedDailyFeedKg = feedings.reduce((sum, feeding) => sum + feeding.amount_kg, 0);
 
     days.push({
       date,
       doc,
       feedingIndex: fi,
-      dailyFeedKg,
-      feedings: [
-        { feed_time: "06:00", amount_kg: roundFeedKg(dailyFeedKg * 0.25) },
-        { feed_time: "10:00", amount_kg: roundFeedKg(dailyFeedKg * 0.30) },
-        { feed_time: "14:00", amount_kg: roundFeedKg(dailyFeedKg * 0.30) },
-        { feed_time: "18:00", amount_kg: roundFeedKg(dailyFeedKg * 0.15) },
-      ],
+      dailyFeedKg: roundedDailyFeedKg,
+      feedings,
     });
 
-    totalFeedKg += dailyFeedKg;
-    currentFI = maximumFeedingIndex !== null
-      ? Math.min(currentFI + feedingIndexIncrement, maximumFeedingIndex)
-      : currentFI + feedingIndexIncrement;
+    totalFeedKg += roundedDailyFeedKg;
+    if (!isHarvestDay) {
+      currentFI = maximumFeedingIndex !== null
+        ? Math.min(currentFI + feedingIndexIncrement, maximumFeedingIndex)
+        : currentFI + feedingIndexIncrement;
+    }
   }
 
-  const biomassGainKg = fcrAssumption > 0 ? totalFeedKg / fcrAssumption : 0;
-  const finalBiomassKg = startingBiomassKg + biomassGainKg;
+  const samplePeriodFeedKg = feedSincePreviousSampleStartKg + totalFeedKg;
+  const biomassGainKg = fcrAssumption > 0 ? samplePeriodFeedKg / fcrAssumption : 0;
+  const finalBiomassKg = previousSampleBiomassKg + biomassGainKg;
   const finalAbwG = estimatedPopulation > 0
     ? round4((finalBiomassKg / estimatedPopulation) * 1000)
     : 0;
@@ -101,6 +115,7 @@ export function PredictModal({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [prevDayFI, setPrevDayFI] = useState<number | null>(null);
+  const [predictionBaseline, setPredictionBaseline] = useState<PredictionBaseline | null>(null);
   const [maximumFeedingIndexDraft, setMaximumFeedingIndexDraft] = useState(
     cycle.maximum_feeding_index ? Number(cycle.maximum_feeding_index).toFixed(3) : "",
   );
@@ -111,10 +126,7 @@ export function PredictModal({
   );
 
   const startDoc = day.metrics.doc;
-  const estimatedPopulation = day.metrics.estimated_population ?? 0;
-  const startingBiomassKg = day.metrics.estimated_biomass_kg
-    ? Number(day.metrics.estimated_biomass_kg)
-    : 0;
+  const estimatedPopulation = predictionBaseline?.estimated_population ?? day.metrics.estimated_population ?? 0;
   const totalDailyFeedKg = day.feedings.reduce((sum, f) => sum + Number(f.amount_kg), 0);
   const currentFeedingIndex =
     day.feedings.length > 0 && startDoc >= 1 && estimatedPopulation > 0
@@ -134,6 +146,13 @@ export function PredictModal({
       }
     }).catch(() => {});
   }, [currentFeedingIndex, startDoc, cycle.start_date, cycle.id, estimatedPopulation]);
+
+  useEffect(() => {
+    setPredictionBaseline(null);
+    api.getPredictionBaseline(cycle.id, day.date)
+      .then(setPredictionBaseline)
+      .catch(() => setPredictionBaseline(null));
+  }, [cycle.id, day.date]);
 
   const baseFI = Number.isFinite(currentFeedingIndex)
     ? currentFeedingIndex
@@ -159,6 +178,7 @@ export function PredictModal({
     if (
       targetDoc === null ||
       estimatedPopulation <= 0 ||
+      predictionBaseline === null ||
       !Number.isFinite(fcr) ||
       fcr <= 0 ||
       Number.isNaN(maximumFeedingIndex) ||
@@ -176,7 +196,8 @@ export function PredictModal({
       maximumFeedingIndex,
       maximumDailyFeedKg,
       estimatedPopulation,
-      startingBiomassKg,
+      previousSampleBiomassKg: Number(predictionBaseline.previous_biomass_kg),
+      feedSincePreviousSampleStartKg: Number(predictionBaseline.feed_since_previous_sample_start_kg),
       fcrAssumption: fcr,
     });
   }, [
@@ -188,7 +209,7 @@ export function PredictModal({
     maximumFeedingIndex,
     maximumDailyFeedKg,
     estimatedPopulation,
-    startingBiomassKg,
+    predictionBaseline,
     fcr,
   ]);
 
@@ -268,7 +289,7 @@ export function PredictModal({
             </div>
 
             <label className="block text-sm">
-              FCR assumption
+              Target sample FCR
               <input
                 type="number"
                 step="0.01"
@@ -337,7 +358,8 @@ export function PredictModal({
             )}
 
             <p className="text-xs text-amber-600">
-              ⚠ Existing feedings for these dates will be replaced.
+              ⚠ Existing daily data from DOC {startDoc} onward will be cleared before prediction is written.
+              DOC {targetDoc} is treated as harvest day, so no feed will be added that day.
             </p>
 
             {error && (
