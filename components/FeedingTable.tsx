@@ -114,7 +114,7 @@ function AdditiveChips({ additives }: { additives: FeedingAdditive[] }) {
       {additives.map((a) => (
         <span
           key={`${a.name}-${a.dosage_gr_per_kg}`}
-          className="rounded border border-amber-200 bg-amber-50 px-2 py-0.5 text-xs text-amber-800"
+          className="rounded border border-amber-200 bg-amber-50 px-1.5 py-0.5 text-xs text-amber-800"
         >
           {a.name} {a.dosage_gr_per_kg}gr/kg
         </span>
@@ -130,7 +130,7 @@ function FeedTypeChips({ feedTypes }: { feedTypes: FeedingFeedType[] }) {
       {feedTypes.map((ft) => (
         <span
           key={`${ft.feed_type_id}-${ft.percentage}`}
-          className="rounded border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-xs text-emerald-800"
+          className="rounded border border-emerald-200 bg-emerald-50 px-1.5 py-0.5 text-xs text-emerald-800"
         >
           {formatFeedTypeName(ft)} {Number(ft.percentage).toFixed(0)}%
         </span>
@@ -297,13 +297,12 @@ function FeedingPreview({
       </div>
       <div className="divide-y divide-slate-100">
         {rows.map((row, index) => (
-          <div key={`${row.feed_time}-${index}`} className="grid gap-2 px-3 py-2 text-xs sm:grid-cols-[72px_86px_1fr]">
+          <div key={`${row.feed_time}-${index}`} className="grid gap-2 px-2 py-1.5 text-xs sm:grid-cols-[64px_76px_1fr]">
             <div className="font-medium text-slate-700">{row.feed_time}</div>
             <div className="text-slate-700">{formatFeedKg(row.amount_kg)} kg</div>
             <div className="space-y-1 text-slate-500">
-              {row.duration_min ? <div>{row.duration_min} min</div> : null}
-              <FeedTypeChips feedTypes={row.feed_types} />
               <AdditiveChips additives={row.additives} />
+              <FeedTypeChips feedTypes={row.feed_types} />
             </div>
           </div>
         ))}
@@ -381,7 +380,6 @@ export function FeedingTable({
       { feed_time: "18:00", amount_kg: roundFeedKg(dailyFeedKg * 0.15) },
     ].map((session) => ({
       ...session,
-      duration_min: draft.duration_min ? Number(draft.duration_min) : undefined,
       additives: cloneAdditives(draft.additives),
       feed_types: cloneFeedTypes(draft.feed_types),
     }));
@@ -409,7 +407,6 @@ export function FeedingTable({
       return previousDay.feedings.map((f) => ({
         feed_time: f.feed_time.slice(0, 5),
         amount_kg: roundFeedKg(Number(f.amount_kg)),
-        duration_min: f.duration_min ?? undefined,
         additives: cloneAdditives(f.additives),
         feed_types: cloneFeedTypes(f.feed_types),
       }));
@@ -591,15 +588,15 @@ export function FeedingTable({
         <p className="text-sm text-slate-500">No feedings logged yet.</p>
       ) : (
         <div className="overflow-x-auto rounded-lg border border-slate-200">
-          <table className="w-full min-w-[820px] border-collapse text-sm">
+          <table className="w-full min-w-[760px] border-collapse text-sm">
             <thead className="bg-slate-50 text-left text-xs uppercase text-slate-500">
               <tr>
-                <th className="border-b border-r border-slate-200 px-3 py-2 font-medium">Time</th>
-                <th className="border-b border-r border-slate-200 px-3 py-2 font-medium">Amount (kg)</th>
-                <th className="border-b border-r border-slate-200 px-3 py-2 font-medium">Feed types</th>
-                <th className="border-b border-r border-slate-200 px-3 py-2 font-medium">Additives</th>
-                <th className="border-b border-r border-slate-200 px-3 py-2 font-medium">Duration</th>
-                <th className="border-b border-slate-200 px-3 py-2 font-medium"></th>
+                <th className="border-b border-r border-slate-200 px-2 py-1.5 font-medium">Time</th>
+                <th className="border-b border-r border-slate-200 px-2 py-1.5 font-medium">Amount (kg)</th>
+                <th className="border-b border-r border-slate-200 px-2 py-1.5 font-medium">Additives</th>
+                <th className="border-b border-r border-slate-200 px-2 py-1.5 font-medium">Duration</th>
+                <th className="border-b border-r border-slate-200 px-2 py-1.5 font-medium">Feed types</th>
+                <th className="border-b border-slate-200 px-2 py-1.5 font-medium"></th>
               </tr>
             </thead>
             <tbody>
@@ -668,22 +665,22 @@ export function FeedingTable({
                   </tr>
                 ) : (
                   <tr key={f.id} className="align-top">
-                    <td className="border-t border-r border-slate-200 px-3 py-3 font-medium text-slate-700">
+                    <td className="border-t border-r border-slate-200 px-2 py-2 font-medium text-slate-700">
                       {f.feed_time.slice(0, 5)}
                     </td>
-                    <td className="border-t border-r border-slate-200 px-3 py-3 text-slate-700">
+                    <td className="border-t border-r border-slate-200 px-2 py-2 text-slate-700">
                       {formatFeedKg(f.amount_kg)}
                     </td>
-                    <td className="border-t border-r border-slate-200 px-3 py-3">
-                      <FeedTypeChips feedTypes={f.feed_types} />
-                    </td>
-                    <td className="border-t border-r border-slate-200 px-3 py-3">
+                    <td className="border-t border-r border-slate-200 px-2 py-2">
                       <AdditiveChips additives={f.additives} />
                     </td>
-                    <td className="border-t border-r border-slate-200 px-3 py-3 text-slate-700">
+                    <td className="border-t border-r border-slate-200 px-2 py-2 text-slate-700">
                       {f.duration_min ? `${f.duration_min} min` : <span className="text-slate-400">-</span>}
                     </td>
-                    <td className="border-t border-slate-200 px-3 py-3">
+                    <td className="border-t border-r border-slate-200 px-2 py-2">
+                      <FeedTypeChips feedTypes={f.feed_types} />
+                    </td>
+                    <td className="border-t border-slate-200 px-2 py-2">
                       {canManage && (
                         <div className="flex gap-2">
                           <button
@@ -813,20 +810,6 @@ export function FeedingTable({
                   Warning: above planned maximum index {formatNumber(maximumFeedingIndex ?? Number.NaN, 3)}.
                 </div>
               )}
-            </div>
-          )}
-
-          {(entryMode === "index" || entryMode === "previous-index") && (
-            <div className={fieldPanelClass}>
-              <label className="block text-sm text-slate-700 sm:max-w-xs">
-                Duration for generated feedings (min)
-                <input
-                  type="number"
-                  value={draft.duration_min}
-                  onChange={(e) => setDraft({ ...draft, duration_min: e.target.value })}
-                  className={inputClass}
-                />
-              </label>
             </div>
           )}
 
