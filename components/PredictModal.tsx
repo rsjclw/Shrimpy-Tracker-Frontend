@@ -101,6 +101,14 @@ export function PredictModal({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [prevDayFI, setPrevDayFI] = useState<number | null>(null);
+  const [maximumFeedingIndexDraft, setMaximumFeedingIndexDraft] = useState(
+    cycle.maximum_feeding_index ? Number(cycle.maximum_feeding_index).toFixed(3) : "",
+  );
+  const [maximumDailyFeedKgDraft, setMaximumDailyFeedKgDraft] = useState(
+    cycle.maximum_daily_feed_capacity_kg
+      ? Number(cycle.maximum_daily_feed_capacity_kg).toFixed(1)
+      : "",
+  );
 
   const startDoc = day.metrics.doc;
   const estimatedPopulation = day.metrics.estimated_population ?? 0;
@@ -132,10 +140,14 @@ export function PredictModal({
     : prevDayFI !== null
       ? prevDayFI + feedingIndexIncrement
       : feedingIndexIncrement;
-  const maximumFeedingIndex = cycle.maximum_feeding_index ? Number(cycle.maximum_feeding_index) : null;
-  const maximumDailyFeedKg = cycle.maximum_daily_feed_capacity_kg
-    ? Number(cycle.maximum_daily_feed_capacity_kg)
-    : null;
+  function optionalPositiveNumber(value: string) {
+    if (!value.trim()) return null;
+    const number = Number(value);
+    return Number.isFinite(number) && number > 0 ? number : Number.NaN;
+  }
+
+  const maximumFeedingIndex = optionalPositiveNumber(maximumFeedingIndexDraft);
+  const maximumDailyFeedKg = optionalPositiveNumber(maximumDailyFeedKgDraft);
 
   const targetDoc = cycle.planned_end_date
     ? differenceInDays(parseISO(cycle.planned_end_date), parseISO(cycle.start_date)) + 1
@@ -144,7 +156,14 @@ export function PredictModal({
   const fcr = Number(fcrDraft);
 
   const preview = useMemo(() => {
-    if (targetDoc === null || estimatedPopulation <= 0 || !Number.isFinite(fcr) || fcr <= 0) {
+    if (
+      targetDoc === null ||
+      estimatedPopulation <= 0 ||
+      !Number.isFinite(fcr) ||
+      fcr <= 0 ||
+      Number.isNaN(maximumFeedingIndex) ||
+      Number.isNaN(maximumDailyFeedKg)
+    ) {
       return null;
     }
     if (targetDoc < startDoc) return null;
@@ -195,7 +214,13 @@ export function PredictModal({
     }
   }
 
-  const canGenerate = preview !== null && preview.days.length > 0 && Number.isFinite(fcr) && fcr > 0;
+  const canGenerate =
+    preview !== null &&
+    preview.days.length > 0 &&
+    Number.isFinite(fcr) &&
+    fcr > 0 &&
+    !Number.isNaN(maximumFeedingIndex) &&
+    !Number.isNaN(maximumDailyFeedKg);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
@@ -254,6 +279,39 @@ export function PredictModal({
                 autoFocus
               />
             </label>
+
+            <div className="grid grid-cols-2 gap-3">
+              <label className="block text-sm">
+                Max daily feed
+                <input
+                  type="number"
+                  step="0.1"
+                  min="0.1"
+                  value={maximumDailyFeedKgDraft}
+                  onChange={(e) => setMaximumDailyFeedKgDraft(e.target.value)}
+                  placeholder="No limit"
+                  className="mt-1 w-full border rounded px-3 py-2"
+                />
+              </label>
+              <label className="block text-sm">
+                Max feeding index
+                <input
+                  type="number"
+                  step="0.001"
+                  min="0.001"
+                  value={maximumFeedingIndexDraft}
+                  onChange={(e) => setMaximumFeedingIndexDraft(e.target.value)}
+                  placeholder="No limit"
+                  className="mt-1 w-full border rounded px-3 py-2"
+                />
+              </label>
+            </div>
+
+            {(Number.isNaN(maximumDailyFeedKg) || Number.isNaN(maximumFeedingIndex)) && (
+              <p className="rounded border border-red-200 bg-red-50 p-3 text-sm text-red-600">
+                Maximum daily feed and maximum feeding index must be positive numbers or blank.
+              </p>
+            )}
 
             {preview && (
               <div className="grid grid-cols-3 gap-3 text-sm">
