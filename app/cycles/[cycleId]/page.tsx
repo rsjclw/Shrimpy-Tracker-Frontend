@@ -3,7 +3,7 @@
 import { addDays, format, parseISO } from "date-fns";
 import Link from "next/link";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import { DailyMetricsCard } from "@/components/DailyMetricsCard";
 import { DateNavigator } from "@/components/DateNavigator";
@@ -35,11 +35,12 @@ export default function CyclePage() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const queryDate = searchParams.get("date");
+  const date = isIsoDate(queryDate) ? queryDate! : todayIso();
+  const latestLoadRef = useRef(0);
   const [cycle, setCycle] = useState<Cycle | null>(null);
   const [pond, setPond] = useState<Pond | null>(null);
   const [farms, setFarms] = useState<Farm[]>([]);
   const [grids, setGrids] = useState<Grid[]>([]);
-  const [date, setDate] = useState(isIsoDate(queryDate) ? queryDate! : todayIso());
   const [day, setDay] = useState<DayView | null>(null);
   const [previousDay, setPreviousDay] = useState<DayView | null>(null);
   const [additives, setAdditives] = useState<FeedAdditive[]>([]);
@@ -75,32 +76,34 @@ export default function CyclePage() {
   }, [cycleId]);
 
   useEffect(() => {
-    if (isIsoDate(queryDate)) {
-      setDate(queryDate!);
-      return;
+    if (!isIsoDate(queryDate)) {
+      router.replace(`/cycles/${cycleId}?date=${date}`, { scroll: false });
     }
-    router.replace(`/cycles/${cycleId}?date=${date}`, { scroll: false });
   }, [cycleId, date, queryDate, router]);
 
   const changeDate = useCallback(
     (next: string) => {
       if (!isIsoDate(next)) return;
-      setDate(next);
       router.push(`/cycles/${cycleId}?date=${next}`, { scroll: false });
     },
     [cycleId, router],
   );
 
-  const reload = useCallback(async () => {
-    let v = await api.getCycleDay(cycleId, date);
+  const reload = useCallback(async (dateToLoad = date) => {
+    const loadId = latestLoadRef.current + 1;
+    latestLoadRef.current = loadId;
+
+    let v = await api.getCycleDay(cycleId, dateToLoad);
     if (!v.daily_log_id) {
-      v = await api.upsertCycleDay(cycleId, date, {});
+      v = await api.upsertCycleDay(cycleId, dateToLoad, {});
     }
     let previous: DayView | null = null;
     if (v.metrics.doc > 1) {
-      const previousDate = format(addDays(parseISO(date), -1), "yyyy-MM-dd");
+      const previousDate = format(addDays(parseISO(dateToLoad), -1), "yyyy-MM-dd");
       previous = await api.getCycleDay(cycleId, previousDate).catch(() => null);
     }
+    if (latestLoadRef.current !== loadId) return;
+
     setDay(v);
     setPreviousDay(previous);
     setNoteDraft(v.notes ?? "");
@@ -109,8 +112,8 @@ export default function CyclePage() {
   }, [cycleId, date]);
 
   useEffect(() => {
-    reload();
-  }, [reload]);
+    reload(date);
+  }, [date, reload]);
 
   async function saveSampling(e: React.FormEvent) {
     e.preventDefault();
@@ -144,7 +147,7 @@ export default function CyclePage() {
     reload();
   }
 
-  if (!cycle || !day) return <main className="p-6">Loading...</main>;
+  if (!cycle || !day || day.date !== date) return <main className="p-6">Loading...</main>;
 
   const farmId = grids.find((grid) => grid.id === pond?.grid_id)?.farm_id;
   const role = farms.find((farm) => farm.id === farmId)?.role ?? null;
