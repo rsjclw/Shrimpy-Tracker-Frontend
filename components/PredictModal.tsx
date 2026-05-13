@@ -300,11 +300,11 @@ export function PredictModal({
           </p>
         )}
 
-        {estimatedPopulation > 0 && (Number.isNaN(targetDoc) ? targetDocDraft.trim() === "" : targetDoc >= startDoc) && (
+        {estimatedPopulation > 0 && (
           <>
             <div className="text-sm text-slate-600">
-              Generating DOC <strong>{startDoc}</strong>
-              {!Number.isNaN(targetDoc) && (
+              Prediction starts at DOC <strong>{startDoc}</strong>
+              {!Number.isNaN(targetDoc) && targetDoc >= startDoc && (
                 <>
                   {" "}to DOC <strong>{targetDoc}</strong>
                   {" "}({targetDoc - startDoc + 1} days)

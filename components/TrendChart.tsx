@@ -41,22 +41,45 @@ type DotProps = {
   payload?: {
     value: number | null;
     is_sampling_day: boolean;
+    is_harvest_day: boolean;
   };
 };
 
-function SamplingDot({ cx, cy, payload }: DotProps) {
-  if (!payload?.is_sampling_day || payload.value === null || cx == null || cy == null) {
+function EventDot({ cx, cy, payload }: DotProps) {
+  if (
+    !payload ||
+    payload.value === null ||
+    cx == null ||
+    cy == null ||
+    (!payload.is_sampling_day && !payload.is_harvest_day)
+  ) {
     return null;
   }
+
+  const samplingY = payload.is_sampling_day && payload.is_harvest_day ? cy - 5 : cy;
+  const harvestY = payload.is_sampling_day && payload.is_harvest_day ? cy + 6 : cy;
+
   return (
-    <circle
-      cx={cx}
-      cy={cy}
-      r={4}
-      fill="#f59e0b"
-      stroke="#fff7ed"
-      strokeWidth={2}
-    />
+    <g>
+      {payload.is_sampling_day ? (
+        <circle
+          cx={cx}
+          cy={samplingY}
+          r={4}
+          fill="#f59e0b"
+          stroke="#fff7ed"
+          strokeWidth={2}
+        />
+      ) : null}
+      {payload.is_harvest_day ? (
+        <path
+          d={`M ${cx} ${harvestY - 5} L ${cx + 5} ${harvestY} L ${cx} ${harvestY + 5} L ${cx - 5} ${harvestY} Z`}
+          fill="#ef4444"
+          stroke="#fff1f2"
+          strokeWidth={2}
+        />
+      ) : null}
+    </g>
   );
 }
 
@@ -67,6 +90,7 @@ type ChartRow = {
   future: number | null;
   value: number | null;
   is_sampling_day: boolean;
+  is_harvest_day: boolean;
 };
 
 type TooltipEntry = {
@@ -104,6 +128,9 @@ function TrendTooltip({ active, metric, label, payload }: TrendTooltipProps) {
       {entry.payload?.is_sampling_day ? (
         <div className="text-xs text-amber-600">Sampling day</div>
       ) : null}
+      {entry.payload?.is_harvest_day ? (
+        <div className="text-xs text-red-600">Harvest day</div>
+      ) : null}
     </div>
   );
 }
@@ -126,6 +153,7 @@ export function TrendChart({
       future: p.is_future && p.value !== null ? Number(p.value) : null,
       value: p.value !== null ? Number(p.value) : null,
       is_sampling_day: p.is_sampling_day,
+      is_harvest_day: p.is_harvest_day,
     }));
 
     // Connect the last past point with the first future point so the line
@@ -197,7 +225,7 @@ export function TrendChart({
               dataKey="past"
               stroke={PAST_COLOR}
               strokeWidth={2}
-              dot={<SamplingDot />}
+              dot={<EventDot />}
               connectNulls
               isAnimationActive={false}
             />
@@ -207,7 +235,7 @@ export function TrendChart({
               stroke={FUTURE_COLOR}
               strokeWidth={2}
               strokeDasharray="6 4"
-              dot={<SamplingDot />}
+              dot={<EventDot />}
               connectNulls
               isAnimationActive={false}
             />
@@ -243,6 +271,12 @@ export function TrendChart({
         <span>
           <span className="inline-block w-2.5 h-2.5 rounded-full bg-amber-500 align-middle mr-1" />{" "}
           sampling
+        </span>
+        <span>
+          <span
+            className="inline-block w-2.5 h-2.5 rotate-45 bg-red-500 align-middle mr-1"
+          />{" "}
+          harvest
         </span>
       </div>
     </div>

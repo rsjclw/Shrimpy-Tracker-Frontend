@@ -18,6 +18,7 @@ const DAILY_METRICS: { key: string; label: string }[] = [
   { key: "harvest_biomass_kg", label: "Harvest biomass" },
   { key: "fcr", label: "FCR" },
   { key: "sample_fcr", label: "Sample FCR" },
+  { key: "adg_g_per_day", label: "Average daily gain" },
 ];
 
 const WATER_METRICS: { key: string; label: string }[] = [

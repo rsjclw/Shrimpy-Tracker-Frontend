@@ -178,6 +178,7 @@ export type TrendPoint = {
   value: string | null;
   is_future: boolean;
   is_sampling_day: boolean;
+  is_harvest_day: boolean;
 };
 export type TrendSeries = { metric: string; points: TrendPoint[] };
 export type BatchImportFeeding = { feed_time: string; amount_kg: number };
