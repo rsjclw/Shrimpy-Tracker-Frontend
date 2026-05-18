@@ -194,6 +194,7 @@ export type PredictionBaseline = {
   previous_biomass_kg: string;
   feed_since_previous_sample_start_kg: string;
   estimated_population: number;
+  harvested_biomass_since_previous_sample_kg: string;
 };
 
 // ---- Endpoints ----

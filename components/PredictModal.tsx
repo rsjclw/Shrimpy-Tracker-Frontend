@@ -29,6 +29,7 @@ function computePrediction(params: {
   estimatedPopulation: number;
   previousSampleBiomassKg: number;
   feedSincePreviousSampleStartKg: number;
+  harvestedBiomassSincePreviousSampleKg: number;
   fcrAssumption: number;
 }): { days: PredictionDay[]; totalFeedKg: number; finalAbwG: number } {
   const {
@@ -42,6 +43,7 @@ function computePrediction(params: {
     estimatedPopulation,
     previousSampleBiomassKg,
     feedSincePreviousSampleStartKg,
+    harvestedBiomassSincePreviousSampleKg,
     fcrAssumption,
   } = params;
   const days: PredictionDay[] = [];
@@ -92,7 +94,7 @@ function computePrediction(params: {
 
   const samplePeriodFeedKg = feedSincePreviousSampleStartKg + totalFeedKg;
   const biomassGainKg = fcrAssumption > 0 ? samplePeriodFeedKg / fcrAssumption : 0;
-  const finalBiomassKg = previousSampleBiomassKg + biomassGainKg;
+  const finalBiomassKg = previousSampleBiomassKg + biomassGainKg - harvestedBiomassSincePreviousSampleKg;
   const finalAbwG = estimatedPopulation > 0
     ? round4((finalBiomassKg / estimatedPopulation) * 1000)
     : 0;
@@ -209,6 +211,7 @@ export function PredictModal({
       estimatedPopulation,
       previousSampleBiomassKg: Number(predictionBaseline.previous_biomass_kg),
       feedSincePreviousSampleStartKg: Number(predictionBaseline.feed_since_previous_sample_start_kg),
+      harvestedBiomassSincePreviousSampleKg: Number(predictionBaseline.harvested_biomass_since_previous_sample_kg),
       fcrAssumption: fcr,
     });
   }, [
