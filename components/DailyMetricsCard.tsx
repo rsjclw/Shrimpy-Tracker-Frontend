@@ -28,6 +28,7 @@ export function DailyMetricsCard({ cycleId, metrics }: Props) {
       metric: "cumulative_feed_end_kg",
     },
     { label: "ABW", value: fmt(metrics.abw_g, " g"), metric: "abw_g" },
+    { label: "ADG (est)", value: fmt(metrics.estimated_adg_g_per_day, " g/day"), metric: "adg_g_per_day" },
     {
       label: "Population (est)",
       value:

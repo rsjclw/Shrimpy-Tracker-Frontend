@@ -147,6 +147,7 @@ export type DayMetrics = {
   cumulative_feed_start_kg: string;
   cumulative_feed_end_kg: string;
   abw_g: string | null;
+  estimated_adg_g_per_day: string | null;
   estimated_population: number | null;
   estimated_biomass_kg: string | null;
   harvest_biomass_kg: string;
