@@ -10,6 +10,7 @@ import { api, type Cycle, type TrendPoint } from "@/lib/api";
 
 const DAILY_METRICS: { key: string; label: string }[] = [
   { key: "daily_feed_kg", label: "Daily feed" },
+  { key: "feeding_index", label: "Feeding index" },
   { key: "cumulative_feed_start_kg", label: "Cumulative feed (start)" },
   { key: "cumulative_feed_end_kg", label: "Cumulative feed (end)" },
   { key: "abw_g", label: "ABW" },

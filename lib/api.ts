@@ -143,6 +143,7 @@ export type Treatment = {
 export type DayMetrics = {
   doc: number;
   daily_feed_kg: string;
+  feeding_index: string | null;
   cumulative_feed_kg: string;
   cumulative_feed_start_kg: string;
   cumulative_feed_end_kg: string;
