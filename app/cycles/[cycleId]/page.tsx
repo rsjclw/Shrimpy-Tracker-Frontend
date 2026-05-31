@@ -10,6 +10,7 @@ import { DateNavigator } from "@/components/DateNavigator";
 import { FeedingTable } from "@/components/FeedingTable";
 import { HarvestCard } from "@/components/HarvestCard";
 import { PredictModal } from "@/components/PredictModal";
+import { PredictionSettingsCard } from "@/components/PredictionSettingsCard";
 import { TreatmentsTimeline } from "@/components/TreatmentsTimeline";
 import { WaterParametersCard } from "@/components/WaterParametersCard";
 import { api, type Cycle, type DayView, type Farm, type FarmRole, type FeedAdditive, type FeedType, type Grid, type Pond } from "@/lib/api";
@@ -221,6 +222,13 @@ export default function CyclePage() {
         canAdd={allowAdd}
         canManage={allowManage}
         onChange={reload}
+      />
+
+      <PredictionSettingsCard
+        cycle={cycle}
+        feedTypes={feedTypes}
+        canManage={allowManage}
+        onSaved={(updated) => setCycle(updated)}
       />
 
       <WaterParametersCard

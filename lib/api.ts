@@ -50,6 +50,18 @@ export type Pond = {
   name: string;
   area_m2: string | null;
 };
+export type HarvestPricePoint = {
+  count_size: string;
+  price_per_kg: string;
+};
+export type CycleFeedPlanRow = {
+  feed_type_id: string;
+  brand: string;
+  type: string;
+  price_per_kg: string;
+  use_until_abw_g: string;
+  notes: string | null;
+};
 export type Cycle = {
   id: string;
   pond_id: string;
@@ -62,8 +74,20 @@ export type Cycle = {
   maximum_daily_feed_capacity_kg: string | null;
   stable_carrying_capacity_kg_per_m3: string | null;
   final_carrying_capacity_kg_per_m3: string | null;
+  stable_carrying_capacity_kg_per_m2: string | null;
+  final_carrying_capacity_kg_per_m2: string | null;
   feeding_index_increment: string;
   maximum_feeding_index: string | null;
+  harvest_price_points: HarvestPricePoint[];
+  pl_brand: string | null;
+  pl_price_per_piece: string | null;
+  electricity_kwh_per_day: string | null;
+  electricity_price_per_kwh: string | null;
+  probiotics_cost_per_day: string | null;
+  disinfection_cost_per_day: string | null;
+  liming_cost_per_day: string | null;
+  minimum_partial_harvest_biomass_kg: string | null;
+  feed_plan: CycleFeedPlanRow[];
   status: string;
   notes: string | null;
   blind_feeding_template_id: string | null;
@@ -253,8 +277,27 @@ export const api = {
       maximum_daily_feed_capacity_kg?: number | null;
       stable_carrying_capacity_kg_per_m3?: number | null;
       final_carrying_capacity_kg_per_m3?: number | null;
+      stable_carrying_capacity_kg_per_m2?: number | null;
+      final_carrying_capacity_kg_per_m2?: number | null;
       feeding_index_increment?: number | null;
       maximum_feeding_index?: number | null;
+      harvest_price_points?: { count_size: number; price_per_kg: number }[];
+      pl_brand?: string | null;
+      pl_price_per_piece?: number | null;
+      electricity_kwh_per_day?: number | null;
+      electricity_price_per_kwh?: number | null;
+      probiotics_cost_per_day?: number | null;
+      disinfection_cost_per_day?: number | null;
+      liming_cost_per_day?: number | null;
+      minimum_partial_harvest_biomass_kg?: number | null;
+      feed_plan?: {
+        feed_type_id: string;
+        brand: string;
+        type: string;
+        price_per_kg: number;
+        use_until_abw_g: number;
+        notes?: string | null;
+      }[];
       notes?: string;
     },
   ) => request<Cycle>(`/cycles/${id}`, { method: "PUT", body: JSON.stringify(b) }),
@@ -270,8 +313,27 @@ export const api = {
     maximum_daily_feed_capacity_kg?: number;
     stable_carrying_capacity_kg_per_m3?: number;
     final_carrying_capacity_kg_per_m3?: number;
+    stable_carrying_capacity_kg_per_m2?: number;
+    final_carrying_capacity_kg_per_m2?: number;
     feeding_index_increment?: number;
     maximum_feeding_index?: number;
+    harvest_price_points?: { count_size: number; price_per_kg: number }[];
+    pl_brand?: string | null;
+    pl_price_per_piece?: number | null;
+    electricity_kwh_per_day?: number | null;
+    electricity_price_per_kwh?: number | null;
+    probiotics_cost_per_day?: number | null;
+    disinfection_cost_per_day?: number | null;
+    liming_cost_per_day?: number | null;
+    minimum_partial_harvest_biomass_kg?: number | null;
+    feed_plan?: {
+      feed_type_id: string;
+      brand: string;
+      type: string;
+      price_per_kg: number;
+      use_until_abw_g: number;
+      notes?: string | null;
+    }[];
     planned_end_date?: string;
     notes?: string;
   }) => request<Cycle>("/cycles", { method: "POST", body: JSON.stringify(b) }),
