@@ -1,17 +1,9 @@
 "use client";
 
 import { differenceInDays, parseISO } from "date-fns";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 
-import { api, type Cycle, type DayView, type PredictionJob, type PredictionResult } from "@/lib/api";
-
-function money(value: string | number) {
-  return Number(value).toLocaleString(undefined, { maximumFractionDigits: 0 });
-}
-
-function kg(value: string | number) {
-  return Number(value).toLocaleString(undefined, { maximumFractionDigits: 1 });
-}
+import { api, type Cycle, type DayView, type PredictionJob } from "@/lib/api";
 
 function Spinner({ light = false }: { light?: boolean }) {
   return (
@@ -28,18 +20,15 @@ export function PredictModal({
   cycle,
   day,
   onClose,
-  onComplete,
+  onStarted,
 }: {
   cycle: Cycle;
   day: DayView;
   onClose: () => void;
-  onComplete: () => void;
+  onStarted: (job: PredictionJob) => void;
 }) {
-  const [generating, setGenerating] = useState(false);
   const [starting, setStarting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [job, setJob] = useState<PredictionJob | null>(null);
-  const [preview, setPreview] = useState<PredictionResult | null>(null);
   const [optimizePartialHarvests, setOptimizePartialHarvests] = useState(true);
   const defaultTargetDoc = cycle.planned_end_date
     ? differenceInDays(parseISO(cycle.planned_end_date), parseISO(cycle.start_date)) + 1
@@ -54,13 +43,6 @@ export function PredictModal({
     ? targetDocNumber
     : Number.NaN;
   const canPreview = !Number.isNaN(targetDoc) && targetDoc >= startDoc;
-  const predictionRunning = starting || job?.status === "pending" || job?.status === "running";
-
-  function clearPrediction() {
-    setPreview(null);
-    setJob(null);
-    setError(null);
-  }
 
   function requestBody() {
     return {
@@ -71,81 +53,15 @@ export function PredictModal({
   }
 
   async function startPrediction() {
-    if (!canPreview || predictionRunning) return;
+    if (!canPreview || starting) return;
     setStarting(true);
     setError(null);
-    setPreview(null);
-    setJob(null);
     try {
       const started = await api.startPredictionPreviewJob(cycle.id, requestBody());
-      setJob(started);
-      if (started.status === "completed" && started.result) {
-        setPreview(started.result);
-      }
-      if (started.status === "failed") {
-        setError(started.error ?? "Prediction failed.");
-      }
+      onStarted(started);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to start prediction.");
-    } finally {
       setStarting(false);
-    }
-  }
-
-  useEffect(() => {
-    if (!job || (job.status !== "pending" && job.status !== "running")) return;
-
-    const activeJob = job;
-    let cancelled = false;
-    let timeout: ReturnType<typeof setTimeout> | null = null;
-
-    async function poll() {
-      try {
-        const next = await api.getPredictionPreviewJob(cycle.id, activeJob.id);
-        if (cancelled) return;
-        setJob(next);
-        if (next.status === "completed") {
-          if (next.result) {
-            setPreview(next.result);
-          } else {
-            setError("Prediction finished without a result.");
-          }
-          return;
-        }
-        if (next.status === "failed") {
-          setPreview(null);
-          setError(next.error ?? "Prediction failed.");
-          return;
-        }
-        timeout = setTimeout(poll, 1500);
-      } catch (err) {
-        if (!cancelled) {
-          setError(err instanceof Error ? err.message : "Failed to check prediction.");
-        }
-      }
-    }
-
-    timeout = setTimeout(poll, 800);
-    return () => {
-      cancelled = true;
-      if (timeout) clearTimeout(timeout);
-    };
-  }, [cycle.id, job]);
-
-  async function generate() {
-    if (!preview || !canPreview || predictionRunning) return;
-    setError(null);
-    setGenerating(true);
-    try {
-      if (job?.status === "completed") {
-        await api.generatePredictionFromJob(cycle.id, job.id);
-      } else {
-        await api.generatePrediction(cycle.id, requestBody());
-      }
-      onComplete();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to generate prediction.");
-      setGenerating(false);
     }
   }
 
@@ -157,7 +73,7 @@ export function PredictModal({
           <button
             type="button"
             onClick={onClose}
-            disabled={predictionRunning || generating}
+            disabled={starting}
             className="text-slate-400 hover:text-slate-600 text-xl leading-none disabled:opacity-40"
           >
             x
@@ -190,10 +106,10 @@ export function PredictModal({
               step="1"
               min={startDoc}
               value={targetDocDraft}
-              disabled={predictionRunning || generating}
+              disabled={starting}
               onChange={(e) => {
                 setTargetDocDraft(e.target.value);
-                clearPrediction();
+                setError(null);
               }}
               placeholder="DOC"
               className="mt-1 w-full border rounded px-3 py-2 disabled:bg-slate-50"
@@ -204,10 +120,10 @@ export function PredictModal({
             <input
               type="checkbox"
               checked={optimizePartialHarvests}
-              disabled={predictionRunning || generating}
+              disabled={starting}
               onChange={(e) => {
                 setOptimizePartialHarvests(e.target.checked);
-                clearPrediction();
+                setError(null);
               }}
             />
             Optimize partial harvests
@@ -224,96 +140,6 @@ export function PredictModal({
           )}
         </div>
 
-        {predictionRunning && (
-          <div className="flex items-center gap-3 rounded border border-amber-200 bg-amber-50 p-3 text-sm text-amber-700">
-            <Spinner />
-            <span>Running high-quality prediction in the background...</span>
-          </div>
-        )}
-
-        {preview && (
-          <>
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-sm">
-              <div className="rounded-lg border border-slate-200 p-3">
-                <div className="text-xs text-slate-500">Total feed</div>
-                <div className="font-semibold">{kg(preview.summary.simulated_feed_kg)} kg</div>
-              </div>
-              <div className="rounded-lg border border-slate-200 p-3">
-                <div className="text-xs text-slate-500">Final ABW</div>
-                <div className="font-semibold">{Number(preview.summary.final_abw_g).toFixed(2)} g</div>
-              </div>
-              <div className="rounded-lg border border-slate-200 p-3">
-                <div className="text-xs text-slate-500">Final biomass</div>
-                <div className="font-semibold">{kg(preview.summary.final_biomass_kg)} kg</div>
-              </div>
-              <div className="rounded-lg border border-slate-200 p-3">
-                <div className="text-xs text-slate-500">Stop</div>
-                <div className="font-semibold">{preview.summary.stop_reason}</div>
-              </div>
-              <div className="rounded-lg border border-slate-200 p-3">
-                <div className="text-xs text-slate-500">Profit/day</div>
-                <div className="font-semibold">{money(preview.summary.profit_per_day)}</div>
-              </div>
-              <div className="rounded-lg border border-slate-200 p-3">
-                <div className="text-xs text-slate-500">Total revenue</div>
-                <div className="font-semibold">{money(preview.summary.total_revenue)}</div>
-              </div>
-              <div className="rounded-lg border border-slate-200 p-3">
-                <div className="text-xs text-slate-500">Final DOC</div>
-                <div className="font-semibold">{preview.summary.final_doc}</div>
-              </div>
-              <div className="rounded-lg border border-slate-200 p-3">
-                <div className="text-xs text-slate-500">Partials</div>
-                <div className="font-semibold">{preview.partial_harvests.length}</div>
-              </div>
-            </div>
-
-            {preview.partial_harvests.length > 0 && (
-              <table className="w-full text-sm">
-                <thead className="text-left text-slate-500">
-                  <tr>
-                    <th className="py-1">DOC</th>
-                    <th>Date</th>
-                    <th>Biomass</th>
-                    <th>ABW</th>
-                    <th>Total price</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {preview.partial_harvests.map((harvest) => (
-                    <tr key={`${harvest.date}-${harvest.biomass_kg}`} className="border-t">
-                      <td className="py-2">{harvest.doc}</td>
-                      <td>{harvest.date}</td>
-                      <td>{kg(harvest.biomass_kg)} kg</td>
-                      <td>{Number(harvest.sampled_abw_g).toFixed(2)} g</td>
-                      <td>{money(harvest.total_price)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            )}
-
-            <div className="rounded border border-slate-200">
-              <div className="grid grid-cols-[70px_1fr_90px_90px] gap-2 px-3 py-2 text-xs font-medium text-slate-500">
-                <span>DOC</span>
-                <span>Feed</span>
-                <span>kg/day</span>
-                <span>ABW</span>
-              </div>
-              <div className="max-h-48 overflow-y-auto">
-                {preview.daily_rows.map((row) => (
-                  <div key={row.date} className="grid grid-cols-[70px_1fr_90px_90px] gap-2 border-t px-3 py-2 text-sm">
-                    <span>{row.doc}</span>
-                    <span>{row.feed_name || "Harvest day"}</span>
-                    <span>{kg(row.actual_feed_kg)}</span>
-                    <span>{Number(row.ending_abw_g).toFixed(2)} g</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </>
-        )}
-
         <p className="text-xs text-amber-600">
           Existing daily data from DOC {startDoc} onward will be cleared before prediction is written.
           {canPreview && <> DOC {targetDoc} is treated as harvest day, so no feed will be added that day.</>}
@@ -329,25 +155,16 @@ export function PredictModal({
           <button
             type="button"
             onClick={startPrediction}
-            disabled={!canPreview || predictionRunning || generating}
+            disabled={!canPreview || starting}
             className="inline-flex items-center gap-2 bg-amber-500 text-white px-4 py-2 rounded text-sm hover:bg-amber-600 disabled:opacity-50"
           >
-            {predictionRunning && <Spinner light />}
-            {predictionRunning ? "Predicting..." : preview ? "Predict again" : "Predict"}
-          </button>
-          <button
-            type="button"
-            onClick={generate}
-            disabled={!preview || !canPreview || predictionRunning || generating}
-            className="inline-flex items-center gap-2 bg-primary text-white px-4 py-2 rounded text-sm hover:bg-primary/90 disabled:opacity-50"
-          >
-            {generating && <Spinner light />}
-            {generating ? "Generating..." : "Generate"}
+            {starting && <Spinner light />}
+            {starting ? "Starting..." : "Predict"}
           </button>
           <button
             type="button"
             onClick={onClose}
-            disabled={predictionRunning || generating}
+            disabled={starting}
             className="border px-4 py-2 rounded text-sm hover:bg-slate-50 disabled:opacity-50"
           >
             Cancel

@@ -9,6 +9,7 @@ type Props = {
   doc: number;
   startDate: string;
   onPredict?: () => void;
+  predicting?: boolean;
 };
 
 function classify(date: string): { label: string; classes: string } {
@@ -18,7 +19,16 @@ function classify(date: string): { label: string; classes: string } {
   return { label: "FUTURE", classes: "bg-amber-100 text-amber-800" };
 }
 
-export function DateNavigator({ date, onChange, doc, startDate, onPredict }: Props) {
+function Spinner() {
+  return (
+    <span
+      className="inline-block h-3.5 w-3.5 animate-spin rounded-full border-2 border-white/40 border-t-white"
+      aria-hidden="true"
+    />
+  );
+}
+
+export function DateNavigator({ date, onChange, doc, startDate, onPredict, predicting = false }: Props) {
   const { label, classes } = classify(date);
   const isPast = date < format(new Date(), "yyyy-MM-dd");
   const [docDraft, setDocDraft] = useState(String(doc));
@@ -80,9 +90,11 @@ export function DateNavigator({ date, onChange, doc, startDate, onPredict }: Pro
           <button
             type="button"
             onClick={onPredict}
-            className="text-sm bg-amber-500 text-white px-3 py-1 rounded hover:bg-amber-600"
+            disabled={predicting}
+            className="inline-flex min-w-[88px] items-center justify-center gap-2 text-sm bg-amber-500 text-white px-3 py-1 rounded hover:bg-amber-600 disabled:cursor-not-allowed disabled:opacity-70"
           >
-            Predict
+            {predicting && <Spinner />}
+            {predicting ? "Predicting" : "Predict"}
           </button>
         )}
         <span className={`text-xs font-semibold px-2 py-1 rounded ${classes}`}>{label}</span>

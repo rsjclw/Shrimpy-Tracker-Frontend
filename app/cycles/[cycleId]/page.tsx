@@ -12,7 +12,7 @@ import { HarvestCard } from "@/components/HarvestCard";
 import { PredictModal } from "@/components/PredictModal";
 import { TreatmentsTimeline } from "@/components/TreatmentsTimeline";
 import { WaterParametersCard } from "@/components/WaterParametersCard";
-import { api, type Cycle, type DayView, type Farm, type FarmRole, type FeedAdditive, type FeedType, type Grid, type Pond } from "@/lib/api";
+import { api, type Cycle, type DayView, type Farm, type FarmRole, type FeedAdditive, type FeedType, type Grid, type Pond, type PredictionJob } from "@/lib/api";
 
 function canAdd(role: FarmRole | null) {
   return role === "admin" || role === "owner" || role === "operator";
@@ -46,6 +46,9 @@ export default function CyclePage() {
   const [additives, setAdditives] = useState<FeedAdditive[]>([]);
   const [feedTypes, setFeedTypes] = useState<FeedType[]>([]);
   const [showPredict, setShowPredict] = useState(false);
+  const [predictionJob, setPredictionJob] = useState<PredictionJob | null>(null);
+  const [predictionApplying, setPredictionApplying] = useState(false);
+  const [predictionError, setPredictionError] = useState<string | null>(null);
   const [savingNote, setSavingNote] = useState(false);
   const [savingSampling, setSavingSampling] = useState(false);
   const [noteDraft, setNoteDraft] = useState("");
@@ -115,6 +118,62 @@ export default function CyclePage() {
     reload(date);
   }, [date, reload]);
 
+  const predictionJobId = predictionJob?.id ?? null;
+
+  useEffect(() => {
+    if (!predictionJobId) return;
+
+    const activeJobId = predictionJobId;
+    let cancelled = false;
+    let timeout: ReturnType<typeof setTimeout> | null = null;
+
+    function wait(ms: number) {
+      return new Promise<void>((resolve) => {
+        timeout = setTimeout(resolve, ms);
+      });
+    }
+
+    async function runPredictionJob() {
+      try {
+        let current = await api.getPredictionPreviewJob(cycleId, activeJobId);
+        while (!cancelled && (current.status === "pending" || current.status === "running")) {
+          setPredictionJob(current);
+          await wait(1500);
+          if (cancelled) return;
+          current = await api.getPredictionPreviewJob(cycleId, activeJobId);
+        }
+
+        if (cancelled) return;
+        setPredictionJob(current);
+
+        if (current.status === "failed") {
+          throw new Error(current.error ?? "Prediction failed.");
+        }
+
+        setPredictionApplying(true);
+        await api.generatePredictionFromJob(cycleId, activeJobId);
+        if (cancelled) return;
+        setPredictionJob(null);
+        setPredictionApplying(false);
+        await reload();
+      } catch (err) {
+        if (!cancelled) {
+          setPredictionError(err instanceof Error ? err.message : "Prediction failed.");
+          setPredictionJob(null);
+          setPredictionApplying(false);
+        }
+      }
+    }
+
+    setPredictionError(null);
+    runPredictionJob();
+
+    return () => {
+      cancelled = true;
+      if (timeout) clearTimeout(timeout);
+    };
+  }, [cycleId, predictionJobId, reload]);
+
   async function saveSampling(e: React.FormEvent) {
     e.preventDefault();
     setSavingSampling(true);
@@ -155,6 +214,7 @@ export default function CyclePage() {
   const role = farms.find((farm) => farm.id === farmId)?.role ?? null;
   const allowAdd = canAdd(role);
   const allowManage = canManage(role);
+  const predictionBusy = Boolean(predictionJobId) || predictionApplying;
 
   return (
     <main className="max-w-3xl mx-auto p-4 sm:p-6 space-y-4">
@@ -180,14 +240,35 @@ export default function CyclePage() {
         doc={currentDay?.metrics.doc ?? selectedDoc}
         startDate={cycle.start_date}
         onPredict={allowAdd && currentDay ? () => setShowPredict(true) : undefined}
+        predicting={predictionBusy}
       />
+
+      {(predictionBusy || predictionError) && (
+        <section
+          className={`rounded-lg border p-3 text-sm shadow-sm ${
+            predictionError
+              ? "border-red-200 bg-red-50 text-red-600"
+              : "border-amber-200 bg-amber-50 text-amber-700"
+          }`}
+        >
+          {predictionError
+            ? predictionError
+            : predictionApplying
+              ? "Prediction complete. Writing daily data..."
+              : "Prediction is running in the background..."}
+        </section>
+      )}
 
       {showPredict && currentDay && (
         <PredictModal
           cycle={cycle}
           day={currentDay}
           onClose={() => setShowPredict(false)}
-          onComplete={() => { setShowPredict(false); reload(); }}
+          onStarted={(job) => {
+            setPredictionError(null);
+            setPredictionJob(job);
+            setShowPredict(false);
+          }}
         />
       )}
 
