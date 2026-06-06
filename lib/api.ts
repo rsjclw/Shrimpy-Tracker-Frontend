@@ -50,6 +50,40 @@ export type Pond = {
   name: string;
   area_m2: string | null;
 };
+export type PredictionConfig = {
+  cycle: {
+    preparation_day: number;
+    maximum_shrimp_size_g: number;
+  };
+  growth: {
+    target_fcr: number;
+    maximum_adg_g_per_day: number;
+    initial_feeding_index: number;
+    feeding_index_increment: number;
+    maximum_feeding_index: number;
+  };
+  capacity: {
+    stable_carrying_capacity_kg_per_m2: number;
+    final_carrying_capacity_kg_per_m2: number;
+  };
+  harvest: {
+    minimum_partial_harvest_biomass_kg: number;
+    harvest_fixed_cost_per_event: number;
+  };
+  prices: {
+    harvest_price_points: { count_size: number; price_per_kg: number }[];
+  };
+  costs: {
+    pl_price_per_piece: number;
+    electricity_kwh: number;
+    electricity_price_per_kwh: number;
+    labor_cost_per_day: number;
+    probiotics_cost_per_day: number;
+    disinfection_cost_per_day: number;
+    liming_cost_per_day: number;
+  };
+  feed_plan: { feed_type_id: string; maximum_daily_feed_kg: number; use_until_abw_g: number }[];
+};
 export type Cycle = {
   id: string;
   pond_id: string;
@@ -68,6 +102,7 @@ export type Cycle = {
   notes: string | null;
   blind_feeding_template_id: string | null;
   blind_feeding_target_abw_g: string | null;
+  prediction_config: PredictionConfig | null;
 };
 export type FeedAdditive = { id: number; farm_id: string; name: string; dosage_gr_per_kg: string | null };
 export type FeedingAdditive = { name: string; dosage_gr_per_kg: number };
@@ -198,6 +233,67 @@ export type PredictionBaseline = {
   estimated_population: number;
   harvested_biomass_since_previous_sample_kg: string;
 };
+export type PredictionRequest = {
+  start_date: string;
+  target_doc: number;
+  optimize_partial_harvests: boolean;
+};
+export type PredictionResult = {
+  summary: {
+    final_doc: number;
+    final_date: string;
+    final_abw_g: string;
+    final_biomass_kg: string;
+    total_harvested_biomass_kg: string;
+    cumulative_feed_kg: string;
+    simulated_feed_kg: string;
+    final_revenue: string;
+    partial_revenue: string;
+    total_revenue: string;
+    feed_cost: string;
+    total_costs: string;
+    profit: string;
+    profit_per_day: string;
+    harvest_count_size: string;
+    harvest_price_per_kg: string;
+    stop_reason: string;
+  };
+  daily_rows: {
+    date: string;
+    doc: number;
+    feed_name: string;
+    feeding_index: string;
+    starting_population: number;
+    ending_population: number;
+    starting_abw_g: string;
+    ending_abw_g: string;
+    starting_biomass_kg: string;
+    ending_biomass_kg: string;
+    actual_feed_kg: string;
+    cumulative_feed_kg: string;
+    count_size: string;
+    harvest_price_per_kg: string;
+    partial_harvest_kg: string;
+    stop_reason: string;
+    feedings: { feed_time: string; amount_kg: string; feed_types: FeedingFeedType[] }[];
+  }[];
+  partial_harvests: {
+    date: string;
+    doc: number;
+    biomass_kg: string;
+    sampled_abw_g: string;
+    count_size: string;
+    price_per_kg: string;
+    total_price: string;
+    estimated_count: number;
+  }[];
+  generated: {
+    days: number;
+    feedings_created: number;
+    harvests_created: number;
+    daily_logs_deleted: number;
+  } | null;
+};
 
 // ---- Endpoints ----
 export const api = {
@@ -255,6 +351,7 @@ export const api = {
       final_carrying_capacity_kg_per_m3?: number | null;
       feeding_index_increment?: number | null;
       maximum_feeding_index?: number | null;
+      prediction_config?: PredictionConfig | null;
       notes?: string;
     },
   ) => request<Cycle>(`/cycles/${id}`, { method: "PUT", body: JSON.stringify(b) }),
@@ -272,6 +369,7 @@ export const api = {
     final_carrying_capacity_kg_per_m3?: number;
     feeding_index_increment?: number;
     maximum_feeding_index?: number;
+    prediction_config?: PredictionConfig;
     planned_end_date?: string;
     notes?: string;
   }) => request<Cycle>("/cycles", { method: "POST", body: JSON.stringify(b) }),
@@ -294,6 +392,16 @@ export const api = {
     request<PredictionBaseline>(
       `/cycles/${cycleId}/prediction-baseline?start_date=${startDate}`,
     ),
+  previewPrediction: (cycleId: string, b: PredictionRequest) =>
+    request<PredictionResult>(`/cycles/${cycleId}/prediction/preview`, {
+      method: "POST",
+      body: JSON.stringify(b),
+    }),
+  generatePrediction: (cycleId: string, b: PredictionRequest) =>
+    request<PredictionResult>(`/cycles/${cycleId}/prediction/generate`, {
+      method: "POST",
+      body: JSON.stringify(b),
+    }),
   createSample: (cycleId: string, b: { date: string; population: number; method?: string }) =>
     request(`/cycles/${cycleId}/samples`, { method: "POST", body: JSON.stringify(b) }),
 

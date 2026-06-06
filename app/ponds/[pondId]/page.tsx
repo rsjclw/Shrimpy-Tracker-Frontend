@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useEffect, useState } from "react";
 
-import { api, type BlindFeedingTemplate, type Cycle, type Farm, type FarmRole, type Grid, type Pond } from "@/lib/api";
+import { api, type BlindFeedingTemplate, type Cycle, type Farm, type FarmRole, type FeedType, type Grid, type Pond, type PredictionConfig } from "@/lib/api";
 
 function canAdd(role: FarmRole | null) {
   return role === "admin" || role === "owner" || role === "operator";
@@ -15,6 +15,23 @@ function canManage(role: FarmRole | null) {
 }
 
 const STATUS_OPTIONS = ["active", "completed", "crashed"];
+const DEFAULT_PRICE_POINTS = [
+  { count_size: "200", price_per_kg: "20000" },
+  { count_size: "100", price_per_kg: "52000" },
+  { count_size: "90", price_per_kg: "53000" },
+  { count_size: "80", price_per_kg: "55000" },
+  { count_size: "70", price_per_kg: "57000" },
+  { count_size: "60", price_per_kg: "60000" },
+  { count_size: "50", price_per_kg: "64000" },
+  { count_size: "40", price_per_kg: "70000" },
+  { count_size: "30", price_per_kg: "75000" },
+  { count_size: "20", price_per_kg: "82000" },
+];
+const DEFAULT_FEED_PLAN = [
+  { feed_type_id: "", maximum_daily_feed_kg: "50", use_until_abw_g: "10" },
+  { feed_type_id: "", maximum_daily_feed_kg: "65", use_until_abw_g: "998" },
+  { feed_type_id: "", maximum_daily_feed_kg: "65", use_until_abw_g: "999" },
+];
 
 function todayIso() {
   return new Date().toISOString().slice(0, 10);
@@ -34,6 +51,26 @@ function emptyCycleForm() {
     maximum_feeding_index: "",
     blind_feeding_template_id: "",
     blind_feeding_target_abw_g: "",
+    prediction_preparation_day: "20",
+    prediction_maximum_shrimp_size_g: "100",
+    prediction_target_fcr: "1.3",
+    prediction_maximum_adg_g_per_day: "0.5",
+    prediction_initial_feeding_index: "0.55",
+    prediction_feeding_index_increment: "0.010",
+    prediction_maximum_feeding_index: "0.7",
+    prediction_stable_carrying_capacity_kg_per_m2: "2",
+    prediction_final_carrying_capacity_kg_per_m2: "3",
+    prediction_minimum_partial_harvest_biomass_kg: "350",
+    prediction_harvest_fixed_cost_per_event: "500000",
+    prediction_pl_price_per_piece: "54",
+    prediction_electricity_kwh: "6",
+    prediction_electricity_price_per_kwh: "1590",
+    prediction_labor_cost_per_day: "100000",
+    prediction_probiotics_cost_per_day: "42000",
+    prediction_disinfection_cost_per_day: "70000",
+    prediction_liming_cost_per_day: "30000",
+    prediction_price_points: DEFAULT_PRICE_POINTS.map((row) => ({ ...row })),
+    prediction_feed_plan: DEFAULT_FEED_PLAN.map((row) => ({ ...row })),
   };
 }
 
@@ -63,6 +100,65 @@ function nullableNumber(value: string) {
   return trimmed ? Number(trimmed) : null;
 }
 
+function requiredNumber(value: string) {
+  return Number(value.trim());
+}
+
+function withDefaultFeedTypes<T extends ReturnType<typeof emptyCycleForm>>(form: T, feedTypes: FeedType[]): T {
+  if (!feedTypes.length || form.prediction_feed_plan.some((row) => row.feed_type_id)) return form;
+  return {
+    ...form,
+    prediction_feed_plan: form.prediction_feed_plan.map((row) => ({
+      ...row,
+      feed_type_id: feedTypes[0].id,
+    })),
+  };
+}
+
+function buildPredictionConfig(form: ReturnType<typeof emptyCycleForm>): PredictionConfig {
+  return {
+    cycle: {
+      preparation_day: Math.floor(requiredNumber(form.prediction_preparation_day)),
+      maximum_shrimp_size_g: requiredNumber(form.prediction_maximum_shrimp_size_g),
+    },
+    growth: {
+      target_fcr: requiredNumber(form.prediction_target_fcr),
+      maximum_adg_g_per_day: requiredNumber(form.prediction_maximum_adg_g_per_day),
+      initial_feeding_index: requiredNumber(form.prediction_initial_feeding_index),
+      feeding_index_increment: requiredNumber(form.prediction_feeding_index_increment),
+      maximum_feeding_index: requiredNumber(form.prediction_maximum_feeding_index),
+    },
+    capacity: {
+      stable_carrying_capacity_kg_per_m2: requiredNumber(form.prediction_stable_carrying_capacity_kg_per_m2),
+      final_carrying_capacity_kg_per_m2: requiredNumber(form.prediction_final_carrying_capacity_kg_per_m2),
+    },
+    harvest: {
+      minimum_partial_harvest_biomass_kg: requiredNumber(form.prediction_minimum_partial_harvest_biomass_kg),
+      harvest_fixed_cost_per_event: requiredNumber(form.prediction_harvest_fixed_cost_per_event),
+    },
+    prices: {
+      harvest_price_points: form.prediction_price_points.map((row) => ({
+        count_size: requiredNumber(row.count_size),
+        price_per_kg: requiredNumber(row.price_per_kg),
+      })),
+    },
+    costs: {
+      pl_price_per_piece: requiredNumber(form.prediction_pl_price_per_piece),
+      electricity_kwh: requiredNumber(form.prediction_electricity_kwh),
+      electricity_price_per_kwh: requiredNumber(form.prediction_electricity_price_per_kwh),
+      labor_cost_per_day: requiredNumber(form.prediction_labor_cost_per_day),
+      probiotics_cost_per_day: requiredNumber(form.prediction_probiotics_cost_per_day),
+      disinfection_cost_per_day: requiredNumber(form.prediction_disinfection_cost_per_day),
+      liming_cost_per_day: requiredNumber(form.prediction_liming_cost_per_day),
+    },
+    feed_plan: form.prediction_feed_plan.map((row) => ({
+      feed_type_id: row.feed_type_id,
+      maximum_daily_feed_kg: requiredNumber(row.maximum_daily_feed_kg),
+      use_until_abw_g: requiredNumber(row.use_until_abw_g),
+    })),
+  };
+}
+
 function formatIndex(value: string | null | undefined) {
   return value ? Number(value).toFixed(3) : "";
 }
@@ -86,6 +182,7 @@ export default function PondPage() {
   const [pond, setPond] = useState<Pond | null>(null);
   const [cycles, setCycles] = useState<Cycle[]>([]);
   const [blindFeedingTemplates, setBlindFeedingTemplates] = useState<BlindFeedingTemplate[]>([]);
+  const [feedTypes, setFeedTypes] = useState<FeedType[]>([]);
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState(emptyCycleForm());
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -113,12 +210,16 @@ export default function PondPage() {
       api.listPondCycles(pondId),
     ]);
     const currentFarmId = visibleGrids.find((grid) => grid.id === currentPond.grid_id)?.farm_id;
-    const templates = currentFarmId ? await api.listBlindFeedingTemplates(currentFarmId) : [];
+    const [templates, catalogFeeds] = currentFarmId
+      ? await Promise.all([api.listBlindFeedingTemplates(currentFarmId), api.listFeedTypes(currentFarmId)])
+      : [[], []];
     setFarms(visibleFarms);
     setGrids(visibleGrids);
     setPond(currentPond);
     setCycles(pondCycles);
     setBlindFeedingTemplates(templates);
+    setFeedTypes(catalogFeeds);
+    setForm((current) => withDefaultFeedTypes(current, catalogFeeds));
   }
 
   async function createCycle(e: React.FormEvent) {
@@ -137,6 +238,7 @@ export default function PondPage() {
       final_carrying_capacity_kg_per_m3: optionalNumber(form.final_carrying_capacity_kg_per_m3),
       feeding_index_increment: optionalNumber(form.feeding_index_increment) ?? 0.01,
       maximum_feeding_index: optionalNumber(form.maximum_feeding_index),
+      ...(feedTypes.length ? { prediction_config: buildPredictionConfig(form) } : {}),
     });
     setShowForm(false);
     setForm(emptyCycleForm());
@@ -353,6 +455,209 @@ export default function PondPage() {
                   </span>
                 </label>
               )}
+            </div>
+            <div className="space-y-3 border-t pt-3">
+              <h3 className="text-sm font-medium">Prediction settings</h3>
+              <div className="grid sm:grid-cols-3 gap-3">
+                <label className="block">
+                  <span className="text-sm">Preparation days</span>
+                  <input required type="number" min="0" step="1" value={form.prediction_preparation_day} onChange={(e) => setForm({ ...form, prediction_preparation_day: e.target.value })} className="mt-1 w-full border rounded px-3 py-2" />
+                </label>
+                <label className="block">
+                  <span className="text-sm">Max shrimp size (g)</span>
+                  <input required type="number" min="0.0001" step="0.0001" value={form.prediction_maximum_shrimp_size_g} onChange={(e) => setForm({ ...form, prediction_maximum_shrimp_size_g: e.target.value })} className="mt-1 w-full border rounded px-3 py-2" />
+                </label>
+                <label className="block">
+                  <span className="text-sm">Target FCR</span>
+                  <input required type="number" min="0.0001" step="0.01" value={form.prediction_target_fcr} onChange={(e) => setForm({ ...form, prediction_target_fcr: e.target.value })} className="mt-1 w-full border rounded px-3 py-2" />
+                </label>
+                <label className="block">
+                  <span className="text-sm">Max ADG (g/day)</span>
+                  <input required type="number" min="0.0001" step="0.0001" value={form.prediction_maximum_adg_g_per_day} onChange={(e) => setForm({ ...form, prediction_maximum_adg_g_per_day: e.target.value })} className="mt-1 w-full border rounded px-3 py-2" />
+                </label>
+                <label className="block">
+                  <span className="text-sm">Initial feeding index</span>
+                  <input required type="number" min="0.0001" step="0.001" value={form.prediction_initial_feeding_index} onChange={(e) => setForm({ ...form, prediction_initial_feeding_index: e.target.value })} className="mt-1 w-full border rounded px-3 py-2" />
+                </label>
+                <label className="block">
+                  <span className="text-sm">Prediction index increment</span>
+                  <input required type="number" min="0.0001" step="0.001" value={form.prediction_feeding_index_increment} onChange={(e) => setForm({ ...form, prediction_feeding_index_increment: e.target.value })} className="mt-1 w-full border rounded px-3 py-2" />
+                </label>
+                <label className="block">
+                  <span className="text-sm">Prediction max index</span>
+                  <input required type="number" min="0.0001" step="0.001" value={form.prediction_maximum_feeding_index} onChange={(e) => setForm({ ...form, prediction_maximum_feeding_index: e.target.value })} className="mt-1 w-full border rounded px-3 py-2" />
+                </label>
+                <label className="block">
+                  <span className="text-sm">Stable capacity (kg/m2)</span>
+                  <input required type="number" min="0.0001" step="0.001" value={form.prediction_stable_carrying_capacity_kg_per_m2} onChange={(e) => setForm({ ...form, prediction_stable_carrying_capacity_kg_per_m2: e.target.value })} className="mt-1 w-full border rounded px-3 py-2" />
+                </label>
+                <label className="block">
+                  <span className="text-sm">Final capacity (kg/m2)</span>
+                  <input required type="number" min="0.0001" step="0.001" value={form.prediction_final_carrying_capacity_kg_per_m2} onChange={(e) => setForm({ ...form, prediction_final_carrying_capacity_kg_per_m2: e.target.value })} className="mt-1 w-full border rounded px-3 py-2" />
+                </label>
+                <label className="block">
+                  <span className="text-sm">Min partial harvest (kg)</span>
+                  <input required type="number" min="0.0001" step="0.001" value={form.prediction_minimum_partial_harvest_biomass_kg} onChange={(e) => setForm({ ...form, prediction_minimum_partial_harvest_biomass_kg: e.target.value })} className="mt-1 w-full border rounded px-3 py-2" />
+                </label>
+                <label className="block">
+                  <span className="text-sm">Harvest fixed cost</span>
+                  <input required type="number" min="0" step="0.01" value={form.prediction_harvest_fixed_cost_per_event} onChange={(e) => setForm({ ...form, prediction_harvest_fixed_cost_per_event: e.target.value })} className="mt-1 w-full border rounded px-3 py-2" />
+                </label>
+                <label className="block">
+                  <span className="text-sm">PL price/piece</span>
+                  <input required type="number" min="0" step="0.01" value={form.prediction_pl_price_per_piece} onChange={(e) => setForm({ ...form, prediction_pl_price_per_piece: e.target.value })} className="mt-1 w-full border rounded px-3 py-2" />
+                </label>
+                <label className="block">
+                  <span className="text-sm">Electricity kW</span>
+                  <input required type="number" min="0" step="0.01" value={form.prediction_electricity_kwh} onChange={(e) => setForm({ ...form, prediction_electricity_kwh: e.target.value })} className="mt-1 w-full border rounded px-3 py-2" />
+                </label>
+                <label className="block">
+                  <span className="text-sm">Electricity price/kWh</span>
+                  <input required type="number" min="0" step="0.01" value={form.prediction_electricity_price_per_kwh} onChange={(e) => setForm({ ...form, prediction_electricity_price_per_kwh: e.target.value })} className="mt-1 w-full border rounded px-3 py-2" />
+                </label>
+                <label className="block">
+                  <span className="text-sm">Labor/day</span>
+                  <input required type="number" min="0" step="0.01" value={form.prediction_labor_cost_per_day} onChange={(e) => setForm({ ...form, prediction_labor_cost_per_day: e.target.value })} className="mt-1 w-full border rounded px-3 py-2" />
+                </label>
+                <label className="block">
+                  <span className="text-sm">Probiotics/day</span>
+                  <input required type="number" min="0" step="0.01" value={form.prediction_probiotics_cost_per_day} onChange={(e) => setForm({ ...form, prediction_probiotics_cost_per_day: e.target.value })} className="mt-1 w-full border rounded px-3 py-2" />
+                </label>
+                <label className="block">
+                  <span className="text-sm">Disinfection/day</span>
+                  <input required type="number" min="0" step="0.01" value={form.prediction_disinfection_cost_per_day} onChange={(e) => setForm({ ...form, prediction_disinfection_cost_per_day: e.target.value })} className="mt-1 w-full border rounded px-3 py-2" />
+                </label>
+                <label className="block">
+                  <span className="text-sm">Liming/day</span>
+                  <input required type="number" min="0" step="0.01" value={form.prediction_liming_cost_per_day} onChange={(e) => setForm({ ...form, prediction_liming_cost_per_day: e.target.value })} className="mt-1 w-full border rounded px-3 py-2" />
+                </label>
+              </div>
+
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <h4 className="text-sm font-medium">Feed plan</h4>
+                  <button
+                    type="button"
+                    onClick={() => setForm({ ...form, prediction_feed_plan: [...form.prediction_feed_plan, { feed_type_id: feedTypes[0]?.id ?? "", maximum_daily_feed_kg: "", use_until_abw_g: "" }] })}
+                    disabled={!feedTypes.length}
+                    className="text-xs border px-2 py-1 rounded"
+                  >
+                    + Feed
+                  </button>
+                </div>
+                {form.prediction_feed_plan.map((row, index) => (
+                  <div key={index} className="grid sm:grid-cols-[1fr_120px_120px_52px] gap-2">
+                    <select
+                      required={feedTypes.length > 0}
+                      value={row.feed_type_id}
+                      onChange={(e) => {
+                        const next = [...form.prediction_feed_plan];
+                        next[index] = { ...row, feed_type_id: e.target.value };
+                        setForm({ ...form, prediction_feed_plan: next });
+                      }}
+                      className="border rounded px-3 py-2"
+                    >
+                      <option value="">Select feed</option>
+                      {feedTypes.map((feed) => (
+                        <option key={feed.id} value={feed.id}>
+                          {feed.brand} {feed.type} - {Number(feed.price_per_kg).toLocaleString(undefined, { maximumFractionDigits: 0 })}/kg
+                        </option>
+                      ))}
+                    </select>
+                    <input
+                      required
+                      type="number"
+                      min="0.0001"
+                      step="0.001"
+                      value={row.maximum_daily_feed_kg}
+                      onChange={(e) => {
+                        const next = [...form.prediction_feed_plan];
+                        next[index] = { ...row, maximum_daily_feed_kg: e.target.value };
+                        setForm({ ...form, prediction_feed_plan: next });
+                      }}
+                      placeholder="Max kg"
+                      className="border rounded px-3 py-2"
+                    />
+                    <input
+                      required
+                      type="number"
+                      min="0.0001"
+                      step="0.0001"
+                      value={row.use_until_abw_g}
+                      onChange={(e) => {
+                        const next = [...form.prediction_feed_plan];
+                        next[index] = { ...row, use_until_abw_g: e.target.value };
+                        setForm({ ...form, prediction_feed_plan: next });
+                      }}
+                      placeholder="Max ABW"
+                      className="border rounded px-3 py-2"
+                    />
+                    <button
+                      type="button"
+                      disabled={form.prediction_feed_plan.length === 1}
+                      onClick={() => setForm({ ...form, prediction_feed_plan: form.prediction_feed_plan.filter((_, i) => i !== index) })}
+                      className="border rounded px-2 py-2 text-xs disabled:opacity-40"
+                    >
+                      Del
+                    </button>
+                  </div>
+                ))}
+              </div>
+
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <h4 className="text-sm font-medium">Harvest prices</h4>
+                  <button
+                    type="button"
+                    onClick={() => setForm({ ...form, prediction_price_points: [...form.prediction_price_points, { count_size: "", price_per_kg: "" }] })}
+                    className="text-xs border px-2 py-1 rounded"
+                  >
+                    + Price
+                  </button>
+                </div>
+                <div className="grid sm:grid-cols-2 gap-2">
+                  {form.prediction_price_points.map((row, index) => (
+                    <div key={index} className="grid grid-cols-[1fr_1fr_52px] gap-2">
+                      <input
+                        required
+                        type="number"
+                        min="0.0001"
+                        step="0.01"
+                        value={row.count_size}
+                        onChange={(e) => {
+                          const next = [...form.prediction_price_points];
+                          next[index] = { ...row, count_size: e.target.value };
+                          setForm({ ...form, prediction_price_points: next });
+                        }}
+                        placeholder="Count"
+                        className="border rounded px-3 py-2"
+                      />
+                      <input
+                        required
+                        type="number"
+                        min="0.0001"
+                        step="0.01"
+                        value={row.price_per_kg}
+                        onChange={(e) => {
+                          const next = [...form.prediction_price_points];
+                          next[index] = { ...row, price_per_kg: e.target.value };
+                          setForm({ ...form, prediction_price_points: next });
+                        }}
+                        placeholder="Price/kg"
+                        className="border rounded px-3 py-2"
+                      />
+                      <button
+                        type="button"
+                        disabled={form.prediction_price_points.length === 1}
+                        onClick={() => setForm({ ...form, prediction_price_points: form.prediction_price_points.filter((_, i) => i !== index) })}
+                        className="border rounded px-2 py-2 text-xs disabled:opacity-40"
+                      >
+                        Del
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </div>
             </div>
             <div className="flex gap-2">
               <button className="bg-primary text-white px-4 py-2 rounded">Create</button>
