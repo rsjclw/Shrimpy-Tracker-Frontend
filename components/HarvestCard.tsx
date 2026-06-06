@@ -16,12 +16,12 @@ type HarvestDraft = {
   harvest_time: string;
   biomass_kg: string;
   sampled_abw_g: string;
-  price_per_kg: string;
+  total_price: string;
   notes: string;
 };
 
 function emptyDraft(): HarvestDraft {
-  return { harvest_time: "08:00", biomass_kg: "", sampled_abw_g: "", price_per_kg: "", notes: "" };
+  return { harvest_time: "08:00", biomass_kg: "", sampled_abw_g: "", total_price: "", notes: "" };
 }
 
 function harvestToDraft(harvest: Harvest): HarvestDraft {
@@ -29,7 +29,7 @@ function harvestToDraft(harvest: Harvest): HarvestDraft {
     harvest_time: harvest.harvest_time.slice(0, 5),
     biomass_kg: Number(harvest.biomass_kg).toFixed(2),
     sampled_abw_g: Number(harvest.sampled_abw_g).toFixed(2),
-    price_per_kg: Number(harvest.price_per_kg).toFixed(2),
+    total_price: Number(harvest.total_price).toFixed(2),
     notes: harvest.notes ?? "",
   };
 }
@@ -89,14 +89,14 @@ function HarvestForm({
           />
         </label>
         <label className="text-sm">
-          Price/kg
+          Total price
           <input
             type="number"
             step="0.01"
             min="0"
             required
-            value={draft.price_per_kg}
-            onChange={(e) => setDraft({ ...draft, price_per_kg: e.target.value })}
+            value={draft.total_price}
+            onChange={(e) => setDraft({ ...draft, total_price: e.target.value })}
             className="mt-1 w-full border rounded px-2 py-1"
           />
         </label>
@@ -129,10 +129,7 @@ export function HarvestCard({ dailyLogId, harvests, canAdd, canManage, onChange 
   const [editDraft, setEditDraft] = useState(emptyDraft());
 
   const totalBiomass = harvests.reduce((sum, h) => sum + Number(h.biomass_kg), 0);
-  const totalRevenue = harvests.reduce(
-    (sum, h) => sum + Number(h.biomass_kg) * Number(h.price_per_kg),
-    0,
-  );
+  const totalPrice = harvests.reduce((sum, h) => sum + Number(h.total_price), 0);
 
   async function add(e: React.FormEvent) {
     e.preventDefault();
@@ -141,7 +138,7 @@ export function HarvestCard({ dailyLogId, harvests, canAdd, canManage, onChange 
       harvest_time: draft.harvest_time,
       biomass_kg: Number(draft.biomass_kg),
       sampled_abw_g: Number(draft.sampled_abw_g),
-      price_per_kg: Number(draft.price_per_kg),
+      total_price: Number(draft.total_price),
       notes: draft.notes.trim() || undefined,
     });
     setAdding(false);
@@ -155,7 +152,7 @@ export function HarvestCard({ dailyLogId, harvests, canAdd, canManage, onChange 
       harvest_time: editDraft.harvest_time,
       biomass_kg: Number(editDraft.biomass_kg),
       sampled_abw_g: Number(editDraft.sampled_abw_g),
-      price_per_kg: Number(editDraft.price_per_kg),
+      total_price: Number(editDraft.total_price),
       notes: editDraft.notes.trim() || null,
     });
     setEditingId(null);
@@ -174,7 +171,7 @@ export function HarvestCard({ dailyLogId, harvests, canAdd, canManage, onChange 
         <div>
           <h3 className="font-medium">Harvest</h3>
           <div className="text-xs text-slate-500">
-            {totalBiomass.toFixed(2)} kg - revenue {money(totalRevenue)}
+            {totalBiomass.toFixed(2)} kg - total price {money(totalPrice)}
           </div>
         </div>
         {canAdd && (
@@ -200,7 +197,7 @@ export function HarvestCard({ dailyLogId, harvests, canAdd, canManage, onChange 
               <th>Biomass</th>
               <th>ABW</th>
               <th>Count</th>
-              <th>Revenue</th>
+              <th>Total price</th>
               <th></th>
             </tr>
           </thead>
@@ -224,7 +221,7 @@ export function HarvestCard({ dailyLogId, harvests, canAdd, canManage, onChange 
                   <td>{Number(h.biomass_kg).toFixed(2)} kg</td>
                   <td>{Number(h.sampled_abw_g).toFixed(2)} g</td>
                   <td>{h.estimated_count.toLocaleString()}</td>
-                  <td>{money(Number(h.biomass_kg) * Number(h.price_per_kg))}</td>
+                  <td>{money(Number(h.total_price))}</td>
                   <td className="flex gap-2 py-2">
                     {canManage && (
                     <>

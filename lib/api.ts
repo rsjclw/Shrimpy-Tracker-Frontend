@@ -113,7 +113,7 @@ export type Harvest = {
   harvest_time: string;
   biomass_kg: string;
   sampled_abw_g: string;
-  price_per_kg: string;
+  total_price: string;
   estimated_count: number;
   notes: string | null;
 };
@@ -322,7 +322,7 @@ export const api = {
       harvest_time: string;
       biomass_kg: number;
       sampled_abw_g: number;
-      price_per_kg: number;
+      total_price: number;
       notes?: string;
     },
   ) =>
@@ -336,7 +336,7 @@ export const api = {
       harvest_time?: string;
       biomass_kg?: number;
       sampled_abw_g?: number;
-      price_per_kg?: number;
+      total_price?: number;
       notes?: string | null;
     },
   ) =>
