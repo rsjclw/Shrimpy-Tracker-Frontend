@@ -294,6 +294,14 @@ export type PredictionResult = {
     daily_logs_deleted: number;
   } | null;
 };
+export type PredictionJob = {
+  id: string;
+  status: "pending" | "running" | "completed" | "failed";
+  error: string | null;
+  result: PredictionResult | null;
+  created_at: string;
+  updated_at: string;
+};
 
 // ---- Endpoints ----
 export const api = {
@@ -396,6 +404,17 @@ export const api = {
     request<PredictionResult>(`/cycles/${cycleId}/prediction/preview`, {
       method: "POST",
       body: JSON.stringify(b),
+    }),
+  startPredictionPreviewJob: (cycleId: string, b: PredictionRequest) =>
+    request<PredictionJob>(`/cycles/${cycleId}/prediction/preview-jobs`, {
+      method: "POST",
+      body: JSON.stringify(b),
+    }),
+  getPredictionPreviewJob: (cycleId: string, jobId: string) =>
+    request<PredictionJob>(`/cycles/${cycleId}/prediction/preview-jobs/${jobId}`),
+  generatePredictionFromJob: (cycleId: string, jobId: string) =>
+    request<PredictionResult>(`/cycles/${cycleId}/prediction/preview-jobs/${jobId}/generate`, {
+      method: "POST",
     }),
   generatePrediction: (cycleId: string, b: PredictionRequest) =>
     request<PredictionResult>(`/cycles/${cycleId}/prediction/generate`, {

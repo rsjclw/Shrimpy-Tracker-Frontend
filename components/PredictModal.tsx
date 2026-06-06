@@ -3,7 +3,7 @@
 import { differenceInDays, parseISO } from "date-fns";
 import { useEffect, useState } from "react";
 
-import { api, type Cycle, type DayView, type PredictionResult } from "@/lib/api";
+import { api, type Cycle, type DayView, type PredictionJob, type PredictionResult } from "@/lib/api";
 
 function money(value: string | number) {
   return Number(value).toLocaleString(undefined, { maximumFractionDigits: 0 });
@@ -11,6 +11,17 @@ function money(value: string | number) {
 
 function kg(value: string | number) {
   return Number(value).toLocaleString(undefined, { maximumFractionDigits: 1 });
+}
+
+function Spinner({ light = false }: { light?: boolean }) {
+  return (
+    <span
+      className={`inline-block h-4 w-4 animate-spin rounded-full border-2 ${
+        light ? "border-white/40 border-t-white" : "border-amber-200 border-t-amber-600"
+      }`}
+      aria-hidden="true"
+    />
+  );
 }
 
 export function PredictModal({
@@ -24,9 +35,10 @@ export function PredictModal({
   onClose: () => void;
   onComplete: () => void;
 }) {
-  const [loading, setLoading] = useState(false);
-  const [previewLoading, setPreviewLoading] = useState(false);
+  const [generating, setGenerating] = useState(false);
+  const [starting, setStarting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [job, setJob] = useState<PredictionJob | null>(null);
   const [preview, setPreview] = useState<PredictionResult | null>(null);
   const [optimizePartialHarvests, setOptimizePartialHarvests] = useState(true);
   const defaultTargetDoc = cycle.planned_end_date
@@ -42,51 +54,98 @@ export function PredictModal({
     ? targetDocNumber
     : Number.NaN;
   const canPreview = !Number.isNaN(targetDoc) && targetDoc >= startDoc;
+  const predictionRunning = starting || job?.status === "pending" || job?.status === "running";
 
-  useEffect(() => {
-    if (!canPreview) {
-      setPreview(null);
-      return;
-    }
-    let cancelled = false;
-    setPreviewLoading(true);
+  function clearPrediction() {
+    setPreview(null);
+    setJob(null);
     setError(null);
-    api.previewPrediction(cycle.id, {
+  }
+
+  function requestBody() {
+    return {
       start_date: day.date,
       target_doc: targetDoc,
       optimize_partial_harvests: optimizePartialHarvests,
-    })
-      .then((result) => {
-        if (!cancelled) setPreview(result);
-      })
-      .catch((err) => {
-        if (!cancelled) {
-          setPreview(null);
-          setError(err instanceof Error ? err.message : "Failed to preview prediction.");
+    };
+  }
+
+  async function startPrediction() {
+    if (!canPreview || predictionRunning) return;
+    setStarting(true);
+    setError(null);
+    setPreview(null);
+    setJob(null);
+    try {
+      const started = await api.startPredictionPreviewJob(cycle.id, requestBody());
+      setJob(started);
+      if (started.status === "completed" && started.result) {
+        setPreview(started.result);
+      }
+      if (started.status === "failed") {
+        setError(started.error ?? "Prediction failed.");
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to start prediction.");
+    } finally {
+      setStarting(false);
+    }
+  }
+
+  useEffect(() => {
+    if (!job || (job.status !== "pending" && job.status !== "running")) return;
+
+    const activeJob = job;
+    let cancelled = false;
+    let timeout: ReturnType<typeof setTimeout> | null = null;
+
+    async function poll() {
+      try {
+        const next = await api.getPredictionPreviewJob(cycle.id, activeJob.id);
+        if (cancelled) return;
+        setJob(next);
+        if (next.status === "completed") {
+          if (next.result) {
+            setPreview(next.result);
+          } else {
+            setError("Prediction finished without a result.");
+          }
+          return;
         }
-      })
-      .finally(() => {
-        if (!cancelled) setPreviewLoading(false);
-      });
+        if (next.status === "failed") {
+          setPreview(null);
+          setError(next.error ?? "Prediction failed.");
+          return;
+        }
+        timeout = setTimeout(poll, 1500);
+      } catch (err) {
+        if (!cancelled) {
+          setError(err instanceof Error ? err.message : "Failed to check prediction.");
+        }
+      }
+    }
+
+    timeout = setTimeout(poll, 800);
     return () => {
       cancelled = true;
+      if (timeout) clearTimeout(timeout);
     };
-  }, [canPreview, cycle.id, day.date, optimizePartialHarvests, targetDoc]);
+  }, [cycle.id, job]);
 
   async function generate() {
-    if (!preview || !canPreview) return;
+    if (!preview || !canPreview || predictionRunning) return;
     setError(null);
-    setLoading(true);
+    setGenerating(true);
     try {
-      await api.generatePrediction(cycle.id, {
-        start_date: day.date,
-        target_doc: targetDoc,
-        optimize_partial_harvests: optimizePartialHarvests,
-      });
+      if (job?.status === "completed") {
+        await api.generatePredictionFromJob(cycle.id, job.id);
+      } else {
+        await api.generatePrediction(cycle.id, requestBody());
+      }
       onComplete();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to generate prediction.");
-      setLoading(false);
+      setGenerating(false);
     }
   }
 
@@ -98,7 +157,8 @@ export function PredictModal({
           <button
             type="button"
             onClick={onClose}
-            className="text-slate-400 hover:text-slate-600 text-xl leading-none"
+            disabled={predictionRunning || generating}
+            className="text-slate-400 hover:text-slate-600 text-xl leading-none disabled:opacity-40"
           >
             x
           </button>
@@ -130,9 +190,13 @@ export function PredictModal({
               step="1"
               min={startDoc}
               value={targetDocDraft}
-              onChange={(e) => setTargetDocDraft(e.target.value)}
+              disabled={predictionRunning || generating}
+              onChange={(e) => {
+                setTargetDocDraft(e.target.value);
+                clearPrediction();
+              }}
               placeholder="DOC"
-              className="mt-1 w-full border rounded px-3 py-2"
+              className="mt-1 w-full border rounded px-3 py-2 disabled:bg-slate-50"
               autoFocus
             />
           </label>
@@ -140,7 +204,11 @@ export function PredictModal({
             <input
               type="checkbox"
               checked={optimizePartialHarvests}
-              onChange={(e) => setOptimizePartialHarvests(e.target.checked)}
+              disabled={predictionRunning || generating}
+              onChange={(e) => {
+                setOptimizePartialHarvests(e.target.checked);
+                clearPrediction();
+              }}
             />
             Optimize partial harvests
           </label>
@@ -156,10 +224,11 @@ export function PredictModal({
           )}
         </div>
 
-        {previewLoading && (
-          <p className="rounded border border-slate-200 bg-slate-50 p-3 text-sm text-slate-500">
-            Loading preview...
-          </p>
+        {predictionRunning && (
+          <div className="flex items-center gap-3 rounded border border-amber-200 bg-amber-50 p-3 text-sm text-amber-700">
+            <Spinner />
+            <span>Running high-quality prediction in the background...</span>
+          </div>
         )}
 
         {preview && (
@@ -256,19 +325,30 @@ export function PredictModal({
           </p>
         )}
 
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
+          <button
+            type="button"
+            onClick={startPrediction}
+            disabled={!canPreview || predictionRunning || generating}
+            className="inline-flex items-center gap-2 bg-amber-500 text-white px-4 py-2 rounded text-sm hover:bg-amber-600 disabled:opacity-50"
+          >
+            {predictionRunning && <Spinner light />}
+            {predictionRunning ? "Predicting..." : preview ? "Predict again" : "Predict"}
+          </button>
           <button
             type="button"
             onClick={generate}
-            disabled={!preview || !canPreview || loading || previewLoading}
-            className="bg-amber-500 text-white px-4 py-2 rounded text-sm hover:bg-amber-600 disabled:opacity-50"
+            disabled={!preview || !canPreview || predictionRunning || generating}
+            className="inline-flex items-center gap-2 bg-primary text-white px-4 py-2 rounded text-sm hover:bg-primary/90 disabled:opacity-50"
           >
-            {loading ? "Generating..." : "Generate"}
+            {generating && <Spinner light />}
+            {generating ? "Generating..." : "Generate"}
           </button>
           <button
             type="button"
             onClick={onClose}
-            className="border px-4 py-2 rounded text-sm hover:bg-slate-50"
+            disabled={predictionRunning || generating}
+            className="border px-4 py-2 rounded text-sm hover:bg-slate-50 disabled:opacity-50"
           >
             Cancel
           </button>
