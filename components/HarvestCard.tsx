@@ -68,7 +68,7 @@ function HarvestForm({
           Biomass (kg)
           <input
             type="number"
-            step="0.01"
+            step="any"
             min="0.01"
             required
             value={draft.biomass_kg}
@@ -80,7 +80,7 @@ function HarvestForm({
           Sampled ABW (g)
           <input
             type="number"
-            step="0.0001"
+            step="any"
             min="0.0001"
             required
             value={draft.sampled_abw_g}
@@ -92,7 +92,7 @@ function HarvestForm({
           Total price
           <input
             type="number"
-            step="0.01"
+            step="any"
             min="0"
             required
             value={draft.total_price}

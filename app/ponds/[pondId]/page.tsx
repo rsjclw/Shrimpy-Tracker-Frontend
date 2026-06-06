@@ -345,7 +345,7 @@ export default function PondPage() {
                 <span className="text-sm">Maximum daily feed capacity (kg)</span>
                 <input
                   type="number"
-                  step="0.001"
+                  step="any"
                   value={form.maximum_daily_feed_capacity_kg}
                   onChange={(e) =>
                     setForm({ ...form, maximum_daily_feed_capacity_kg: e.target.value })
@@ -357,7 +357,7 @@ export default function PondPage() {
                 <span className="text-sm">Maximum feeding index</span>
                 <input
                   type="number"
-                  step="0.001"
+                  step="any"
                   value={form.maximum_feeding_index}
                   onChange={(e) =>
                     setForm({ ...form, maximum_feeding_index: e.target.value })
@@ -372,7 +372,7 @@ export default function PondPage() {
                 <span className="text-sm">Feeding index increment</span>
                 <input
                   type="number"
-                  step="0.001"
+                  step="any"
                   value={form.feeding_index_increment}
                   onChange={(e) =>
                     setForm({ ...form, feeding_index_increment: e.target.value })
@@ -390,7 +390,7 @@ export default function PondPage() {
                 <span className="text-sm">Stable carrying capacity (kg/m3)</span>
                 <input
                   type="number"
-                  step="0.001"
+                  step="any"
                   value={form.stable_carrying_capacity_kg_per_m3}
                   onChange={(e) =>
                     setForm({ ...form, stable_carrying_capacity_kg_per_m3: e.target.value })
@@ -402,7 +402,7 @@ export default function PondPage() {
                 <span className="text-sm">Final carrying capacity (kg/m3)</span>
                 <input
                   type="number"
-                  step="0.001"
+                  step="any"
                   value={form.final_carrying_capacity_kg_per_m3}
                   onChange={(e) =>
                     setForm({ ...form, final_carrying_capacity_kg_per_m3: e.target.value })
@@ -415,7 +415,7 @@ export default function PondPage() {
                 <input
                   required
                   type="number"
-                  step="0.0001"
+                  step="any"
                   value={form.initial_abw_g}
                   onChange={(e) =>
                     setForm({ ...form, initial_abw_g: e.target.value })
@@ -443,7 +443,7 @@ export default function PondPage() {
                   <span className="text-sm">Target ABW after blind feeding (g)</span>
                   <input
                     type="number"
-                    step="0.0001"
+                    step="any"
                     min="0"
                     value={form.blind_feeding_target_abw_g}
                     onChange={(e) => setForm({ ...form, blind_feeding_target_abw_g: e.target.value })}
@@ -465,71 +465,71 @@ export default function PondPage() {
                 </label>
                 <label className="block">
                   <span className="text-sm">Max shrimp size (g)</span>
-                  <input required type="number" min="0.0001" step="0.0001" value={form.prediction_maximum_shrimp_size_g} onChange={(e) => setForm({ ...form, prediction_maximum_shrimp_size_g: e.target.value })} className="mt-1 w-full border rounded px-3 py-2" />
+                  <input required type="number" min="0.0001" step="any" value={form.prediction_maximum_shrimp_size_g} onChange={(e) => setForm({ ...form, prediction_maximum_shrimp_size_g: e.target.value })} className="mt-1 w-full border rounded px-3 py-2" />
                 </label>
                 <label className="block">
                   <span className="text-sm">Target FCR</span>
-                  <input required type="number" min="0.0001" step="0.01" value={form.prediction_target_fcr} onChange={(e) => setForm({ ...form, prediction_target_fcr: e.target.value })} className="mt-1 w-full border rounded px-3 py-2" />
+                  <input required type="number" min="0.0001" step="any" value={form.prediction_target_fcr} onChange={(e) => setForm({ ...form, prediction_target_fcr: e.target.value })} className="mt-1 w-full border rounded px-3 py-2" />
                 </label>
                 <label className="block">
                   <span className="text-sm">Max ADG (g/day)</span>
-                  <input required type="number" min="0.0001" step="0.0001" value={form.prediction_maximum_adg_g_per_day} onChange={(e) => setForm({ ...form, prediction_maximum_adg_g_per_day: e.target.value })} className="mt-1 w-full border rounded px-3 py-2" />
+                  <input required type="number" min="0.0001" step="any" value={form.prediction_maximum_adg_g_per_day} onChange={(e) => setForm({ ...form, prediction_maximum_adg_g_per_day: e.target.value })} className="mt-1 w-full border rounded px-3 py-2" />
                 </label>
                 <label className="block">
                   <span className="text-sm">Initial feeding index</span>
-                  <input required type="number" min="0.0001" step="0.001" value={form.prediction_initial_feeding_index} onChange={(e) => setForm({ ...form, prediction_initial_feeding_index: e.target.value })} className="mt-1 w-full border rounded px-3 py-2" />
+                  <input required type="number" min="0.0001" step="any" value={form.prediction_initial_feeding_index} onChange={(e) => setForm({ ...form, prediction_initial_feeding_index: e.target.value })} className="mt-1 w-full border rounded px-3 py-2" />
                 </label>
                 <label className="block">
                   <span className="text-sm">Prediction index increment</span>
-                  <input required type="number" min="0.0001" step="0.001" value={form.prediction_feeding_index_increment} onChange={(e) => setForm({ ...form, prediction_feeding_index_increment: e.target.value })} className="mt-1 w-full border rounded px-3 py-2" />
+                  <input required type="number" min="0.0001" step="any" value={form.prediction_feeding_index_increment} onChange={(e) => setForm({ ...form, prediction_feeding_index_increment: e.target.value })} className="mt-1 w-full border rounded px-3 py-2" />
                 </label>
                 <label className="block">
                   <span className="text-sm">Prediction max index</span>
-                  <input required type="number" min="0.0001" step="0.001" value={form.prediction_maximum_feeding_index} onChange={(e) => setForm({ ...form, prediction_maximum_feeding_index: e.target.value })} className="mt-1 w-full border rounded px-3 py-2" />
+                  <input required type="number" min="0.0001" step="any" value={form.prediction_maximum_feeding_index} onChange={(e) => setForm({ ...form, prediction_maximum_feeding_index: e.target.value })} className="mt-1 w-full border rounded px-3 py-2" />
                 </label>
                 <label className="block">
                   <span className="text-sm">Stable capacity (kg/m2)</span>
-                  <input required type="number" min="0.0001" step="0.001" value={form.prediction_stable_carrying_capacity_kg_per_m2} onChange={(e) => setForm({ ...form, prediction_stable_carrying_capacity_kg_per_m2: e.target.value })} className="mt-1 w-full border rounded px-3 py-2" />
+                  <input required type="number" min="0.0001" step="any" value={form.prediction_stable_carrying_capacity_kg_per_m2} onChange={(e) => setForm({ ...form, prediction_stable_carrying_capacity_kg_per_m2: e.target.value })} className="mt-1 w-full border rounded px-3 py-2" />
                 </label>
                 <label className="block">
                   <span className="text-sm">Final capacity (kg/m2)</span>
-                  <input required type="number" min="0.0001" step="0.001" value={form.prediction_final_carrying_capacity_kg_per_m2} onChange={(e) => setForm({ ...form, prediction_final_carrying_capacity_kg_per_m2: e.target.value })} className="mt-1 w-full border rounded px-3 py-2" />
+                  <input required type="number" min="0.0001" step="any" value={form.prediction_final_carrying_capacity_kg_per_m2} onChange={(e) => setForm({ ...form, prediction_final_carrying_capacity_kg_per_m2: e.target.value })} className="mt-1 w-full border rounded px-3 py-2" />
                 </label>
                 <label className="block">
                   <span className="text-sm">Min partial harvest (kg)</span>
-                  <input required type="number" min="0.0001" step="0.001" value={form.prediction_minimum_partial_harvest_biomass_kg} onChange={(e) => setForm({ ...form, prediction_minimum_partial_harvest_biomass_kg: e.target.value })} className="mt-1 w-full border rounded px-3 py-2" />
+                  <input required type="number" min="0.0001" step="any" value={form.prediction_minimum_partial_harvest_biomass_kg} onChange={(e) => setForm({ ...form, prediction_minimum_partial_harvest_biomass_kg: e.target.value })} className="mt-1 w-full border rounded px-3 py-2" />
                 </label>
                 <label className="block">
                   <span className="text-sm">Harvest fixed cost</span>
-                  <input required type="number" min="0" step="0.01" value={form.prediction_harvest_fixed_cost_per_event} onChange={(e) => setForm({ ...form, prediction_harvest_fixed_cost_per_event: e.target.value })} className="mt-1 w-full border rounded px-3 py-2" />
+                  <input required type="number" min="0" step="any" value={form.prediction_harvest_fixed_cost_per_event} onChange={(e) => setForm({ ...form, prediction_harvest_fixed_cost_per_event: e.target.value })} className="mt-1 w-full border rounded px-3 py-2" />
                 </label>
                 <label className="block">
                   <span className="text-sm">PL price/piece</span>
-                  <input required type="number" min="0" step="0.01" value={form.prediction_pl_price_per_piece} onChange={(e) => setForm({ ...form, prediction_pl_price_per_piece: e.target.value })} className="mt-1 w-full border rounded px-3 py-2" />
+                  <input required type="number" min="0" step="any" value={form.prediction_pl_price_per_piece} onChange={(e) => setForm({ ...form, prediction_pl_price_per_piece: e.target.value })} className="mt-1 w-full border rounded px-3 py-2" />
                 </label>
                 <label className="block">
                   <span className="text-sm">Electricity kW</span>
-                  <input required type="number" min="0" step="0.01" value={form.prediction_electricity_kwh} onChange={(e) => setForm({ ...form, prediction_electricity_kwh: e.target.value })} className="mt-1 w-full border rounded px-3 py-2" />
+                  <input required type="number" min="0" step="any" value={form.prediction_electricity_kwh} onChange={(e) => setForm({ ...form, prediction_electricity_kwh: e.target.value })} className="mt-1 w-full border rounded px-3 py-2" />
                 </label>
                 <label className="block">
                   <span className="text-sm">Electricity price/kWh</span>
-                  <input required type="number" min="0" step="0.01" value={form.prediction_electricity_price_per_kwh} onChange={(e) => setForm({ ...form, prediction_electricity_price_per_kwh: e.target.value })} className="mt-1 w-full border rounded px-3 py-2" />
+                  <input required type="number" min="0" step="any" value={form.prediction_electricity_price_per_kwh} onChange={(e) => setForm({ ...form, prediction_electricity_price_per_kwh: e.target.value })} className="mt-1 w-full border rounded px-3 py-2" />
                 </label>
                 <label className="block">
                   <span className="text-sm">Labor/day</span>
-                  <input required type="number" min="0" step="0.01" value={form.prediction_labor_cost_per_day} onChange={(e) => setForm({ ...form, prediction_labor_cost_per_day: e.target.value })} className="mt-1 w-full border rounded px-3 py-2" />
+                  <input required type="number" min="0" step="any" value={form.prediction_labor_cost_per_day} onChange={(e) => setForm({ ...form, prediction_labor_cost_per_day: e.target.value })} className="mt-1 w-full border rounded px-3 py-2" />
                 </label>
                 <label className="block">
                   <span className="text-sm">Probiotics/day</span>
-                  <input required type="number" min="0" step="0.01" value={form.prediction_probiotics_cost_per_day} onChange={(e) => setForm({ ...form, prediction_probiotics_cost_per_day: e.target.value })} className="mt-1 w-full border rounded px-3 py-2" />
+                  <input required type="number" min="0" step="any" value={form.prediction_probiotics_cost_per_day} onChange={(e) => setForm({ ...form, prediction_probiotics_cost_per_day: e.target.value })} className="mt-1 w-full border rounded px-3 py-2" />
                 </label>
                 <label className="block">
                   <span className="text-sm">Disinfection/day</span>
-                  <input required type="number" min="0" step="0.01" value={form.prediction_disinfection_cost_per_day} onChange={(e) => setForm({ ...form, prediction_disinfection_cost_per_day: e.target.value })} className="mt-1 w-full border rounded px-3 py-2" />
+                  <input required type="number" min="0" step="any" value={form.prediction_disinfection_cost_per_day} onChange={(e) => setForm({ ...form, prediction_disinfection_cost_per_day: e.target.value })} className="mt-1 w-full border rounded px-3 py-2" />
                 </label>
                 <label className="block">
                   <span className="text-sm">Liming/day</span>
-                  <input required type="number" min="0" step="0.01" value={form.prediction_liming_cost_per_day} onChange={(e) => setForm({ ...form, prediction_liming_cost_per_day: e.target.value })} className="mt-1 w-full border rounded px-3 py-2" />
+                  <input required type="number" min="0" step="any" value={form.prediction_liming_cost_per_day} onChange={(e) => setForm({ ...form, prediction_liming_cost_per_day: e.target.value })} className="mt-1 w-full border rounded px-3 py-2" />
                 </label>
               </div>
 
@@ -568,7 +568,7 @@ export default function PondPage() {
                       required
                       type="number"
                       min="0.0001"
-                      step="0.001"
+                      step="any"
                       value={row.maximum_daily_feed_kg}
                       onChange={(e) => {
                         const next = [...form.prediction_feed_plan];
@@ -582,7 +582,7 @@ export default function PondPage() {
                       required
                       type="number"
                       min="0.0001"
-                      step="0.0001"
+                      step="any"
                       value={row.use_until_abw_g}
                       onChange={(e) => {
                         const next = [...form.prediction_feed_plan];
@@ -622,7 +622,7 @@ export default function PondPage() {
                         required
                         type="number"
                         min="0.0001"
-                        step="0.01"
+                        step="any"
                         value={row.count_size}
                         onChange={(e) => {
                           const next = [...form.prediction_price_points];
@@ -636,7 +636,7 @@ export default function PondPage() {
                         required
                         type="number"
                         min="0.0001"
-                        step="0.01"
+                        step="any"
                         value={row.price_per_kg}
                         onChange={(e) => {
                           const next = [...form.prediction_price_points];
@@ -716,7 +716,7 @@ export default function PondPage() {
                         <span className="text-sm">Maximum daily feed capacity (kg)</span>
                         <input
                           type="number"
-                          step="0.001"
+                          step="any"
                           value={editForm.maximum_daily_feed_capacity_kg}
                           onChange={(e) =>
                             setEditForm({ ...editForm, maximum_daily_feed_capacity_kg: e.target.value })
@@ -728,7 +728,7 @@ export default function PondPage() {
                         <span className="text-sm">Maximum feeding index</span>
                         <input
                           type="number"
-                          step="0.001"
+                          step="any"
                           value={editForm.maximum_feeding_index}
                           onChange={(e) =>
                             setEditForm({ ...editForm, maximum_feeding_index: e.target.value })
@@ -743,7 +743,7 @@ export default function PondPage() {
                         <span className="text-sm">Feeding index increment</span>
                         <input
                           type="number"
-                          step="0.001"
+                          step="any"
                           value={editForm.feeding_index_increment}
                           onChange={(e) =>
                             setEditForm({ ...editForm, feeding_index_increment: e.target.value })
@@ -761,7 +761,7 @@ export default function PondPage() {
                         <span className="text-sm">Stable carrying capacity (kg/m3)</span>
                         <input
                           type="number"
-                          step="0.001"
+                          step="any"
                           value={editForm.stable_carrying_capacity_kg_per_m3}
                           onChange={(e) =>
                             setEditForm({ ...editForm, stable_carrying_capacity_kg_per_m3: e.target.value })
@@ -773,7 +773,7 @@ export default function PondPage() {
                         <span className="text-sm">Final carrying capacity (kg/m3)</span>
                         <input
                           type="number"
-                          step="0.001"
+                          step="any"
                           value={editForm.final_carrying_capacity_kg_per_m3}
                           onChange={(e) =>
                             setEditForm({ ...editForm, final_carrying_capacity_kg_per_m3: e.target.value })

@@ -90,7 +90,7 @@ export function FeedTypesSection({
           <div className="grid sm:grid-cols-4 gap-2">
             <input autoFocus value={form.brand} onChange={(e) => setForm({ ...form, brand: e.target.value })} placeholder="Brand" className="border rounded px-3 py-2" />
             <input value={form.type} onChange={(e) => setForm({ ...form, type: e.target.value })} placeholder="Type" className="border rounded px-3 py-2" />
-            <input type="number" step="0.01" value={form.price_per_kg} onChange={(e) => setForm({ ...form, price_per_kg: e.target.value })} placeholder="Price/kg" className="border rounded px-3 py-2" />
+            <input type="number" step="any" value={form.price_per_kg} onChange={(e) => setForm({ ...form, price_per_kg: e.target.value })} placeholder="Price/kg" className="border rounded px-3 py-2" />
             <input value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} placeholder="Notes" className="border rounded px-3 py-2" />
           </div>
           <div className="flex gap-2">
@@ -111,7 +111,7 @@ export function FeedTypesSection({
                   <div className="grid sm:grid-cols-4 gap-2">
                     <input autoFocus value={editForm.brand} onChange={(e) => setEditForm({ ...editForm, brand: e.target.value })} className="border rounded px-2 py-1" />
                     <input value={editForm.type} onChange={(e) => setEditForm({ ...editForm, type: e.target.value })} className="border rounded px-2 py-1" />
-                    <input type="number" step="0.01" value={editForm.price_per_kg} onChange={(e) => setEditForm({ ...editForm, price_per_kg: e.target.value })} className="border rounded px-2 py-1" />
+                    <input type="number" step="any" value={editForm.price_per_kg} onChange={(e) => setEditForm({ ...editForm, price_per_kg: e.target.value })} className="border rounded px-2 py-1" />
                     <input value={editForm.notes} onChange={(e) => setEditForm({ ...editForm, notes: e.target.value })} className="border rounded px-2 py-1" />
                   </div>
                   <div className="flex gap-2">

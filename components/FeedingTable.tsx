@@ -260,7 +260,7 @@ function FeedTypeMixEditor({
                   type="number"
                   min="0"
                   max="100"
-                  step="0.1"
+                  step="any"
                   value={f.percentage}
                   onChange={(e) => onPercentage(f.feed_type_id, e.target.value)}
                   className="w-full rounded border border-slate-300 px-2 py-1 text-xs"
@@ -620,7 +620,7 @@ export function FeedingTable({
                               Amount (kg)
                               <input
                                 type="number"
-                                step="0.1"
+                                step="any"
                                 required
                                 value={editDraft.amount_kg}
                                 onChange={(e) => setEditDraft({ ...editDraft, amount_kg: e.target.value })}
@@ -758,7 +758,7 @@ export function FeedingTable({
                   Amount (kg)
                   <input
                     type="number"
-                    step="0.1"
+                    step="any"
                     required
                     value={draft.amount_kg}
                     onChange={(e) => setDraft({ ...draft, amount_kg: e.target.value })}
@@ -784,7 +784,7 @@ export function FeedingTable({
                 Feeding index
                 <input
                   type="number"
-                  step="0.001"
+                  step="any"
                   required
                   value={indexDraft}
                   onChange={(e) => setIndexDraft(e.target.value)}

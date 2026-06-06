@@ -97,7 +97,7 @@ export function AdditivesSection({
           />
           <input
             type="number"
-            step="0.001"
+            step="any"
             value={form.dosage_gr_per_kg}
             onChange={(e) => setForm({ ...form, dosage_gr_per_kg: e.target.value })}
             placeholder="gr/kg"
@@ -125,7 +125,7 @@ export function AdditivesSection({
                     />
                     <input
                       type="number"
-                      step="0.001"
+                      step="any"
                       value={editForm.dosage_gr_per_kg}
                       onChange={(e) => setEditForm({ ...editForm, dosage_gr_per_kg: e.target.value })}
                       className="w-24 border rounded px-2 py-1"

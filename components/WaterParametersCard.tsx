@@ -15,17 +15,17 @@ type Props = {
 
 const FIELDS: Array<{ key: keyof WaterParameters; label: string; unit?: string; step?: string }> =
   [
-    { key: "do_am", label: "DO am", unit: "ppm", step: "0.01" },
-    { key: "do_pm", label: "DO pm", unit: "ppm", step: "0.01" },
-    { key: "ph_am", label: "pH am", step: "0.01" },
-    { key: "ph_pm", label: "pH pm", step: "0.01" },
-    { key: "salinity", label: "Salinity", unit: "ppt", step: "0.1" },
-    { key: "tan", label: "TAN", unit: "ppm", step: "0.001" },
-    { key: "nitrite", label: "Nitrite", unit: "ppm", step: "0.001" },
-    { key: "phosphate", label: "Phosphate", unit: "ppm", step: "0.001" },
-    { key: "calcium", label: "Calcium", unit: "ppm", step: "0.1" },
-    { key: "magnesium", label: "Magnesium", unit: "ppm", step: "0.1" },
-    { key: "alkalinity", label: "Alkalinity", unit: "ppm", step: "0.1" },
+    { key: "do_am", label: "DO am", unit: "ppm", step: "any" },
+    { key: "do_pm", label: "DO pm", unit: "ppm", step: "any" },
+    { key: "ph_am", label: "pH am", step: "any" },
+    { key: "ph_pm", label: "pH pm", step: "any" },
+    { key: "salinity", label: "Salinity", unit: "ppt", step: "any" },
+    { key: "tan", label: "TAN", unit: "ppm", step: "any" },
+    { key: "nitrite", label: "Nitrite", unit: "ppm", step: "any" },
+    { key: "phosphate", label: "Phosphate", unit: "ppm", step: "any" },
+    { key: "calcium", label: "Calcium", unit: "ppm", step: "any" },
+    { key: "magnesium", label: "Magnesium", unit: "ppm", step: "any" },
+    { key: "alkalinity", label: "Alkalinity", unit: "ppm", step: "any" },
   ];
 
 export function WaterParametersCard({ cycleId, dailyLogId, water, canManage, onChange }: Props) {
@@ -86,7 +86,7 @@ export function WaterParametersCard({ cycleId, dailyLogId, water, canManage, onC
               </span>
               <input
                 type="number"
-                step={f.step ?? "0.01"}
+                step={f.step ?? "any"}
                 value={draft[f.key] ?? ""}
                 onChange={(e) => setDraft({ ...draft, [f.key]: e.target.value })}
                 className="mt-1 w-full border rounded px-2 py-1"

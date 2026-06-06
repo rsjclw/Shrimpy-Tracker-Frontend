@@ -104,7 +104,7 @@ export default function GridPage() {
               onChange={(e) => setArea(e.target.value)}
               placeholder="Area (m2)"
               type="number"
-              step="0.01"
+              step="any"
               className="sm:w-40 border rounded px-3 py-2"
             />
             <button className="bg-primary text-white px-4 rounded py-2">Add</button>
@@ -134,7 +134,7 @@ export default function GridPage() {
                       onChange={(e) => setEditArea(e.target.value)}
                       placeholder="Area (m2)"
                       type="number"
-                      step="0.01"
+                      step="any"
                       className="w-full border rounded px-2 py-1"
                     />
                     <div className="flex gap-2">

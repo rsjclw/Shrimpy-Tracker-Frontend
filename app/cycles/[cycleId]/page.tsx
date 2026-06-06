@@ -247,7 +247,7 @@ export default function CyclePage() {
               ABW (g)
               <input
                 type="number"
-                step="0.0001"
+                step="any"
                 value={abwDraft}
                 onChange={(e) => setAbwDraft(e.target.value)}
                 className="mt-1 w-full border rounded px-2 py-1"
