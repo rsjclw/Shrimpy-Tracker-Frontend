@@ -121,6 +121,30 @@ export default function CyclePage() {
   const predictionJobId = predictionJob?.id ?? null;
 
   useEffect(() => {
+    if (predictionJobId || predictionApplying) return;
+
+    let cancelled = false;
+
+    async function resumePredictionJob() {
+      try {
+        const latestJob = await api.getLatestPredictionPreviewJob(cycleId);
+        if (!cancelled && latestJob) {
+          setPredictionError(null);
+          setPredictionJob(latestJob);
+        }
+      } catch {
+        // No-op: normal page loading should not be blocked by resumable job lookup.
+      }
+    }
+
+    resumePredictionJob();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [cycleId, predictionApplying, predictionJobId]);
+
+  useEffect(() => {
     if (!predictionJobId) return;
 
     const activeJobId = predictionJobId;

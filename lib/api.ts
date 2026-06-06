@@ -296,7 +296,7 @@ export type PredictionResult = {
 };
 export type PredictionJob = {
   id: string;
-  status: "pending" | "running" | "completed" | "failed";
+  status: "pending" | "running" | "completed" | "failed" | "applied";
   error: string | null;
   result: PredictionResult | null;
   created_at: string;
@@ -410,6 +410,8 @@ export const api = {
       method: "POST",
       body: JSON.stringify(b),
     }),
+  getLatestPredictionPreviewJob: (cycleId: string) =>
+    request<PredictionJob | null>(`/cycles/${cycleId}/prediction/preview-jobs/latest`),
   getPredictionPreviewJob: (cycleId: string, jobId: string) =>
     request<PredictionJob>(`/cycles/${cycleId}/prediction/preview-jobs/${jobId}`),
   generatePredictionFromJob: (cycleId: string, jobId: string) =>
