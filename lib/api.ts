@@ -2,7 +2,7 @@
 
 import { getSupabase } from "./supabase";
 
-const BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
+const BASE = process.env.NEXT_PUBLIC_API_URL ?? "/backend";
 
 async function authHeader(): Promise<HeadersInit> {
   const sb = getSupabase();
