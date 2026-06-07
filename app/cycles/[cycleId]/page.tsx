@@ -263,7 +263,7 @@ export default function CyclePage() {
         onChange={changeDate}
         doc={currentDay?.metrics.doc ?? selectedDoc}
         startDate={cycle.start_date}
-        onPredict={allowAdd && currentDay ? () => setShowPredict(true) : undefined}
+        onPredict={allowManage && currentDay ? () => setShowPredict(true) : undefined}
         predicting={predictionBusy}
       />
 
@@ -287,12 +287,14 @@ export default function CyclePage() {
         <PredictModal
           cycle={cycle}
           day={currentDay}
+          feedTypes={feedTypes}
           onClose={() => setShowPredict(false)}
           onStarted={(job) => {
             setPredictionError(null);
             setPredictionJob(job);
             setShowPredict(false);
           }}
+          onCycleUpdated={setCycle}
         />
       )}
 
