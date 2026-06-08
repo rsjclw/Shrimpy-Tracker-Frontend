@@ -232,6 +232,7 @@ export type PredictionBaseline = {
   feed_since_previous_sample_start_kg: string;
   estimated_population: number;
   harvested_biomass_since_previous_sample_kg: string;
+  initial_abw_g: string | null;
 };
 export type PredictionRequest = {
   start_date: string;
@@ -240,6 +241,7 @@ export type PredictionRequest = {
 };
 export type PredictionResult = {
   summary: {
+    initial_abw_g: string;
     final_doc: number;
     final_date: string;
     final_abw_g: string;

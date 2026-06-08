@@ -682,7 +682,8 @@ export function PredictModal({
         </section>
 
         <p className="text-xs text-amber-600">
-          Existing daily data from DOC {startDoc} onward will be cleared before prediction is written.
+          Existing daily data from DOC {startDoc} onward will be cleared before prediction is written,
+          except an ABW sample already saved on DOC {startDoc}.
           {canPreview && <> DOC {targetDoc} is treated as harvest day, so no feed will be added that day.</>}
         </p>
 
