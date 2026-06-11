@@ -9,6 +9,7 @@ import { DailyMetricsCard } from "@/components/DailyMetricsCard";
 import { DateNavigator } from "@/components/DateNavigator";
 import { FeedingTable } from "@/components/FeedingTable";
 import { HarvestCard } from "@/components/HarvestCard";
+import { PlanktonBacteriaCard } from "@/components/PlanktonBacteriaCard";
 import { PredictModal } from "@/components/PredictModal";
 import { TreatmentsTimeline } from "@/components/TreatmentsTimeline";
 import { WaterParametersCard } from "@/components/WaterParametersCard";
@@ -331,6 +332,14 @@ export default function CyclePage() {
       />
 
       <WaterParametersCard
+        cycleId={cycleId}
+        dailyLogId={currentDay.daily_log_id}
+        water={currentDay.water}
+        canManage={allowManage}
+        onChange={reload}
+      />
+
+      <PlanktonBacteriaCard
         cycleId={cycleId}
         dailyLogId={currentDay.daily_log_id}
         water={currentDay.water}

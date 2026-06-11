@@ -152,20 +152,37 @@ export type Harvest = {
   estimated_count: number;
   notes: string | null;
 };
-export type WaterParameters = {
+export type WaterParameterSourceKey =
+  | "do_am"
+  | "do_pm"
+  | "ph_am"
+  | "ph_pm"
+  | "salinity"
+  | "tan"
+  | "nitrite"
+  | "phosphate"
+  | "calcium"
+  | "magnesium"
+  | "alkalinity"
+  | "plankton_ga"
+  | "plankton_bga"
+  | "plankton_diatom"
+  | "plankton_yga"
+  | "plankton_eugle"
+  | "plankton_dino"
+  | "plankton_zoo"
+  | "plankton_protozoa"
+  | "yellow_vibrio"
+  | "green_vibrio"
+  | "black_vibrio"
+  | "tbc";
+export type WaterParametersUpsert = Partial<Record<WaterParameterSourceKey, number | null>>;
+export type WaterParameters = Record<WaterParameterSourceKey, string | null> & {
   id: string;
   daily_log_id: string;
-  do_am: string | null;
-  do_pm: string | null;
-  ph_am: string | null;
-  ph_pm: string | null;
-  salinity: string | null;
-  tan: string | null;
-  nitrite: string | null;
-  phosphate: string | null;
-  calcium: string | null;
-  magnesium: string | null;
-  alkalinity: string | null;
+  total_plankton: string | null;
+  total_vibrio_count: string | null;
+  vibrio_percentage: string | null;
 };
 export type Treatment = {
   id: string;
@@ -474,7 +491,7 @@ export const api = {
     request<Harvest>(`/harvests/${id}`, { method: "PUT", body: JSON.stringify(b) }),
   deleteHarvest: (id: string) => request<void>(`/harvests/${id}`, { method: "DELETE" }),
 
-  upsertWater: (dailyLogId: string, b: Partial<Omit<WaterParameters, "id" | "daily_log_id">>) =>
+  upsertWater: (dailyLogId: string, b: WaterParametersUpsert) =>
     request<WaterParameters>(`/days/${dailyLogId}/water`, {
       method: "PUT",
       body: JSON.stringify(b),

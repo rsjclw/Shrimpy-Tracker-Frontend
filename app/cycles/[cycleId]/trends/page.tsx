@@ -36,7 +36,25 @@ const WATER_METRICS: { key: string; label: string }[] = [
   { key: "alkalinity", label: "Alkalinity" },
 ];
 
-const METRICS = [...DAILY_METRICS, ...WATER_METRICS];
+const BIOLOGY_METRICS: { key: string; label: string }[] = [
+  { key: "plankton_ga", label: "GA" },
+  { key: "plankton_bga", label: "BGA" },
+  { key: "plankton_diatom", label: "Diatom" },
+  { key: "plankton_yga", label: "YGA" },
+  { key: "plankton_eugle", label: "Eugle" },
+  { key: "plankton_dino", label: "Dino" },
+  { key: "plankton_zoo", label: "Zoo" },
+  { key: "plankton_protozoa", label: "Protozoa" },
+  { key: "total_plankton", label: "Total plankton" },
+  { key: "yellow_vibrio", label: "Yellow Vibrio" },
+  { key: "green_vibrio", label: "Green Vibrio" },
+  { key: "black_vibrio", label: "Black Vibrio" },
+  { key: "total_vibrio_count", label: "Total Vibrio count" },
+  { key: "tbc", label: "TBC" },
+  { key: "vibrio_percentage", label: "Vibrio percentage" },
+];
+
+const METRICS = [...DAILY_METRICS, ...WATER_METRICS, ...BIOLOGY_METRICS];
 
 function todayIso() {
   return format(new Date(), "yyyy-MM-dd");
@@ -168,6 +186,24 @@ export default function TrendsPage() {
           <div className="text-xs font-medium text-slate-500 mb-2">Water parameters</div>
           <div className="flex flex-wrap gap-2">
             {WATER_METRICS.map((m) => (
+              <button
+                key={m.key}
+                onClick={() => setMetric(m.key)}
+                className={`text-sm px-3 py-1 rounded border ${
+                  metric === m.key
+                    ? "bg-primary text-white border-primary"
+                    : "bg-white text-slate-700"
+                }`}
+              >
+                {m.label}
+              </button>
+            ))}
+          </div>
+        </div>
+        <div>
+          <div className="text-xs font-medium text-slate-500 mb-2">Plankton &amp; Bacteria</div>
+          <div className="flex flex-wrap gap-2">
+            {BIOLOGY_METRICS.map((m) => (
               <button
                 key={m.key}
                 onClick={() => setMetric(m.key)}
