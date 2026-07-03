@@ -19,6 +19,8 @@ type ChemistryKey = Extract<
   | "do_pm"
   | "ph_am"
   | "ph_pm"
+  | "water_clarity_am"
+  | "water_clarity_pm"
   | "salinity"
   | "tan"
   | "nitrite"
@@ -34,6 +36,8 @@ const FIELDS: Array<{ key: ChemistryKey; label: string; unit?: string; step?: st
     { key: "do_pm", label: "DO pm", unit: "ppm", step: "any" },
     { key: "ph_am", label: "pH am", step: "any" },
     { key: "ph_pm", label: "pH pm", step: "any" },
+    { key: "water_clarity_am", label: "Water clarity am", unit: "cm", step: "any" },
+    { key: "water_clarity_pm", label: "Water clarity pm", unit: "cm", step: "any" },
     { key: "salinity", label: "Salinity", unit: "ppt", step: "any" },
     { key: "tan", label: "TAN", unit: "ppm", step: "any" },
     { key: "nitrite", label: "Nitrite", unit: "ppm", step: "any" },

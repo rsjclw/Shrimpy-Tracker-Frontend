@@ -27,6 +27,8 @@ const WATER_METRICS: { key: string; label: string }[] = [
   { key: "do_pm", label: "DO pm" },
   { key: "ph_am", label: "pH am" },
   { key: "ph_pm", label: "pH pm" },
+  { key: "water_clarity_am", label: "Water clarity am" },
+  { key: "water_clarity_pm", label: "Water clarity pm" },
   { key: "salinity", label: "Salinity" },
   { key: "tan", label: "TAN" },
   { key: "nitrite", label: "Nitrite" },

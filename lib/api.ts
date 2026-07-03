@@ -157,6 +157,8 @@ export type WaterParameterSourceKey =
   | "do_pm"
   | "ph_am"
   | "ph_pm"
+  | "water_clarity_am"
+  | "water_clarity_pm"
   | "salinity"
   | "tan"
   | "nitrite"
