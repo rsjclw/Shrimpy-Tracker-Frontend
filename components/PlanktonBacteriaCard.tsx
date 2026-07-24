@@ -223,7 +223,7 @@ export function PlanktonBacteriaCard({ cycleId, dailyLogId, water, canManage, on
               {PLANKTON_FIELDS.map((field) => (
                 <Link
                   key={field.key}
-                  href={`/cycles/${cycleId}/trends?metric=${field.key}`}
+                  href={`/trends?cycles=${cycleId}&metrics=${field.key}`}
                   className="block rounded border border-transparent p-2 -m-2 hover:border-slate-200 hover:bg-slate-50 transition"
                 >
                   <div className="text-slate-500 text-xs">{field.label}</div>
@@ -239,7 +239,7 @@ export function PlanktonBacteriaCard({ cycleId, dailyLogId, water, canManage, on
               {BACTERIA_FIELDS.map((field) => (
                 <Link
                   key={field.key}
-                  href={`/cycles/${cycleId}/trends?metric=${field.key}`}
+                  href={`/trends?cycles=${cycleId}&metrics=${field.key}`}
                   className="block rounded border border-transparent p-2 -m-2 hover:border-slate-200 hover:bg-slate-50 transition"
                 >
                   <div className="text-slate-500 text-xs">{field.label}</div>
@@ -253,7 +253,7 @@ export function PlanktonBacteriaCard({ cycleId, dailyLogId, water, canManage, on
             {COMPUTED_FIELDS.map((field) => (
               <Link
                 key={field.key}
-                href={`/cycles/${cycleId}/trends?metric=${field.key}`}
+                href={`/trends?cycles=${cycleId}&metrics=${field.key}`}
                 className="block rounded border border-transparent p-2 -m-2 hover:border-slate-200 hover:bg-slate-50 transition"
               >
                 <div className="text-slate-500 text-xs">{field.label}</div>

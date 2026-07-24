@@ -57,7 +57,7 @@ export function DailyMetricsCard({ cycleId, metrics }: Props) {
         {items.map((it) => (
           <Link
             key={it.metric}
-            href={`/cycles/${cycleId}/trends?metric=${it.metric}`}
+            href={`/trends?cycles=${cycleId}&metrics=${it.metric}`}
             className="block rounded-lg border border-slate-200 p-3 hover:bg-slate-50 transition"
           >
             <div className="text-xs text-slate-500">{it.label}</div>

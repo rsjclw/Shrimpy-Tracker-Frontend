@@ -132,7 +132,7 @@ export function WaterParametersCard({ cycleId, dailyLogId, water, canManage, onC
           {FIELDS.map((f) => (
             <Link
               key={f.key}
-              href={`/cycles/${cycleId}/trends?metric=${f.key}`}
+              href={`/trends?cycles=${cycleId}&metrics=${f.key}`}
               className="block rounded border border-transparent p-2 -m-2 hover:border-slate-200 hover:bg-slate-50 transition"
             >
               <div className="text-slate-500 text-xs">{f.label}</div>
