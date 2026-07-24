@@ -265,8 +265,12 @@ function TrendsCompare() {
         const def = metricDef(metric);
         const key = seriesKey(cycleId, metric);
         const values = new Map<number, number>();
+        let futureFromDoc: number | null = null;
         for (const point of pointsByKey[key] ?? []) {
-          if (!includePredicted && point.isFuture) continue;
+          if (point.isFuture) {
+            if (!includePredicted) continue;
+            if (futureFromDoc == null || point.doc < futureFromDoc) futureFromDoc = point.doc;
+          }
           values.set(point.doc, point.value);
         }
 
@@ -284,6 +288,7 @@ function TrendsCompare() {
           color: CYCLE_COLORS[colorIndex % CYCLE_COLORS.length],
           dash,
           values,
+          futureFromDoc,
         });
       });
     });

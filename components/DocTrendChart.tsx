@@ -5,6 +5,7 @@ import {
   CartesianGrid,
   Line,
   LineChart,
+  ReferenceLine,
   ResponsiveContainer,
   Tooltip,
   XAxis,
@@ -23,7 +24,14 @@ export type ChartSeries = {
   dash?: string;
   /** doc -> value, already filtered to the points that actually have data */
   values: Map<number, number>;
+  /**
+   * First DOC that is a prediction rather than a recorded value, or null when
+   * nothing predicted is being shown. Everything from here on is drawn faded.
+   */
+  futureFromDoc: number | null;
 };
+
+const FUTURE_OPACITY = 0.32;
 
 type Props = {
   series: ChartSeries[];
@@ -142,11 +150,30 @@ export function DocTrendChart({
     () =>
       visible.map((s) => {
         const smoothed = smoothValues(s.values, smoothWindow);
-        return {
-          series: s,
-          plotted: normalize ? normalizeValues(smoothed) : smoothed,
-          raw: s.values,
-        };
+        const plotted = normalize ? normalizeValues(smoothed) : smoothed;
+
+        // Split into a recorded segment and a predicted segment so each can be
+        // drawn with its own opacity. The last recorded point is repeated into
+        // the predicted map so the two segments join without a visible gap.
+        const past = new Map<number, number>();
+        const future = new Map<number, number>();
+        const boundary = s.futureFromDoc;
+        let lastPastDoc: number | null = null;
+
+        for (const doc of Array.from(plotted.keys()).sort((a, b) => a - b)) {
+          const value = plotted.get(doc)!;
+          if (boundary == null || doc < boundary) {
+            past.set(doc, value);
+            lastPastDoc = doc;
+          } else {
+            future.set(doc, value);
+          }
+        }
+        if (boundary != null && lastPastDoc != null) {
+          future.set(lastPastDoc, plotted.get(lastPastDoc)!);
+        }
+
+        return { series: s, plotted, past, future, raw: s.values };
       }),
     [visible, smoothWindow, normalize],
   );
@@ -174,14 +201,29 @@ export function DocTrendChart({
     for (let doc = docFrom; doc <= docTo; doc += 1) {
       const raw: RawMap = {};
       const row: ChartRow = { doc, __raw: raw };
-      for (const { series: s, plotted, raw: rawValues } of prepared) {
-        row[s.id] = plotted.get(doc) ?? null;
+      for (const { series: s, past, future, raw: rawValues } of prepared) {
+        row[s.id] = past.get(doc) ?? null;
+        row[`${s.id}__fut`] = future.get(doc) ?? null;
         raw[s.id] = rawValues.get(doc) ?? null;
       }
       rows.push(row);
     }
     return rows;
   }, [prepared, docFrom, docTo]);
+
+  // One vertical marker per cycle at its prediction boundary. Cycles share a
+  // boundary across their metrics, so dedupe by (colour, doc) to avoid drawing
+  // the same line several times.
+  const predictionMarkers = useMemo(() => {
+    const seen = new Map<string, { doc: number; color: string }>();
+    for (const s of visible) {
+      if (s.futureFromDoc == null) continue;
+      seen.set(`${s.color}:${s.futureFromDoc}`, { doc: s.futureFromDoc, color: s.color });
+    }
+    return Array.from(seen.values());
+  }, [visible]);
+
+  const hasPredicted = predictionMarkers.length > 0;
 
   const formatAxis = (value: number) => (normalize ? `${Math.round(value)}%` : formatMetricValue(value));
 
@@ -239,21 +281,54 @@ export function DocTrendChart({
               />
             ) : null}
             <Tooltip content={<ChartTooltip series={visible} />} />
-            {prepared.map(({ series: s, plotted }) => (
-              <Line
-                key={s.id}
-                yAxisId={axisIdFor(s.axisGroup)}
-                dataKey={s.id}
-                name={`${s.cycleLabel} - ${s.metricLabel}`}
-                stroke={s.color}
-                strokeWidth={2}
-                strokeDasharray={s.dash}
-                dot={plotted.size <= 45 ? { r: 2.5, strokeWidth: 0, fill: s.color } : false}
-                activeDot={{ r: 4 }}
-                connectNulls={connectNulls}
-                isAnimationActive={false}
+            {predictionMarkers.map((marker) => (
+              <ReferenceLine
+                key={`pred-${marker.color}-${marker.doc}`}
+                yAxisId={leftGroup}
+                x={marker.doc}
+                stroke={marker.color}
+                strokeOpacity={0.5}
+                strokeDasharray="2 4"
+                strokeWidth={1}
+                ifOverflow="hidden"
               />
             ))}
+            {prepared.flatMap(({ series: s, past, future }) => {
+              const lines = [
+                <Line
+                  key={s.id}
+                  yAxisId={axisIdFor(s.axisGroup)}
+                  dataKey={s.id}
+                  name={`${s.cycleLabel} - ${s.metricLabel}`}
+                  stroke={s.color}
+                  strokeWidth={2}
+                  strokeDasharray={s.dash}
+                  dot={past.size <= 45 ? { r: 2.5, strokeWidth: 0, fill: s.color } : false}
+                  activeDot={{ r: 4 }}
+                  connectNulls={connectNulls}
+                  isAnimationActive={false}
+                />,
+              ];
+              if (future.size > 1) {
+                lines.push(
+                  <Line
+                    key={`${s.id}__fut`}
+                    yAxisId={axisIdFor(s.axisGroup)}
+                    dataKey={`${s.id}__fut`}
+                    name={`${s.cycleLabel} - ${s.metricLabel} (predicted)`}
+                    stroke={s.color}
+                    strokeOpacity={FUTURE_OPACITY}
+                    strokeWidth={2}
+                    strokeDasharray={s.dash}
+                    dot={false}
+                    activeDot={{ r: 4 }}
+                    connectNulls={connectNulls}
+                    isAnimationActive={false}
+                  />,
+                );
+              }
+              return lines;
+            })}
           </LineChart>
         </ResponsiveContainer>
       </div>
@@ -291,6 +366,24 @@ export function DocTrendChart({
           );
         })}
       </div>
+
+      {hasPredicted ? (
+        <div className="mt-2 flex items-center gap-1.5 text-xs text-slate-500">
+          <svg width="34" height="8" className="shrink-0">
+            <line x1="0" y1="4" x2="15" y2="4" stroke="#64748b" strokeWidth="2" />
+            <line
+              x1="19"
+              y1="4"
+              x2="34"
+              y2="4"
+              stroke="#64748b"
+              strokeWidth="2"
+              strokeOpacity={FUTURE_OPACITY}
+            />
+          </svg>
+          <span>solid = recorded, faded = predicted (dashed line marks where each cycle&apos;s prediction starts)</span>
+        </div>
+      ) : null}
 
       {axisGroups.length > 2 && !normalize ? (
         <p className="mt-2 text-xs text-amber-600">
