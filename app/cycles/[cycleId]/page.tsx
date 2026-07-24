@@ -252,7 +252,7 @@ export default function CyclePage() {
       <div className="flex items-baseline justify-between">
         <h1 className="text-2xl font-semibold">{cycle.name}</h1>
         <Link
-          href={`/cycles/${cycleId}/trends?metric=daily_feed_kg`}
+          href={`/trends?cycles=${cycleId}`}
           className="text-sm text-primary hover:underline"
         >
           View trends -&gt;

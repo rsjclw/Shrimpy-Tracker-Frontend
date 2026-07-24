@@ -367,6 +367,8 @@ export const api = {
   getPond: (id: string) => request<Pond>(`/ponds/${id}`),
   listPondCycles: (pondId: string) => request<Cycle[]>(`/ponds/${pondId}/cycles`),
 
+  listCycles: (farmId?: string) =>
+    request<Cycle[]>(`/cycles${farmId ? `?farm_id=${farmId}` : ""}`),
   getCycle: (id: string) => request<Cycle>(`/cycles/${id}`),
   updateCycle: (
     id: string,

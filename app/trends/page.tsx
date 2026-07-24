@@ -1,0 +1,581 @@
+"use client";
+
+import { differenceInCalendarDays, format, parseISO } from "date-fns";
+import Link from "next/link";
+import { useRouter, useSearchParams } from "next/navigation";
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
+
+import { DocTrendChart, type ChartSeries } from "@/components/DocTrendChart";
+import { api, type Cycle, type Farm, type Grid, type Pond } from "@/lib/api";
+import { METRIC_DEFS, METRIC_GROUPS, metricDef, type MetricGroup } from "@/lib/metrics";
+import { getSupabase } from "@/lib/supabase";
+
+const CYCLE_COLORS = [
+  "#0ea5a4",
+  "#6366f1",
+  "#f59e0b",
+  "#ef4444",
+  "#8b5cf6",
+  "#0891b2",
+  "#65a30d",
+  "#db2777",
+];
+const METRIC_DASHES: (string | undefined)[] = [undefined, "6 3", "2 3", "10 4 2 4", "1 3"];
+
+const PRESETS: { label: string; metrics: string[] }[] = [
+  { label: "pH am vs pm", metrics: ["ph_am", "ph_pm"] },
+  { label: "DO am vs pm", metrics: ["do_am", "do_pm"] },
+  { label: "Clarity am vs pm", metrics: ["water_clarity_am", "water_clarity_pm"] },
+  { label: "Growth", metrics: ["abw_g", "adg_g_per_day"] },
+  { label: "Feed vs FCR", metrics: ["daily_feed_kg", "fcr"] },
+];
+
+const SMOOTH_OPTIONS = [
+  { value: 1, label: "Raw" },
+  { value: 3, label: "3-day" },
+  { value: 7, label: "7-day" },
+];
+
+type DocPoint = { doc: number; value: number; isFuture: boolean };
+
+function todayIso() {
+  return format(new Date(), "yyyy-MM-dd");
+}
+
+function maxIso(a: string, b: string) {
+  return a >= b ? a : b;
+}
+
+function seriesKey(cycleId: string, metric: string) {
+  return `${cycleId}:${metric}`;
+}
+
+function parseList(value: string | null): string[] {
+  return value ? value.split(",").filter(Boolean) : [];
+}
+
+export default function TrendsComparePage() {
+  return (
+    <Suspense fallback={<main className="p-6 text-sm text-slate-500">Loading...</main>}>
+      <TrendsCompare />
+    </Suspense>
+  );
+}
+
+function TrendsCompare() {
+  const router = useRouter();
+  const search = useSearchParams();
+
+  const [authChecked, setAuthChecked] = useState(false);
+  const [farms, setFarms] = useState<Farm[]>([]);
+  const [farmId, setFarmId] = useState("");
+  const [grids, setGrids] = useState<Grid[]>([]);
+  const [ponds, setPonds] = useState<Pond[]>([]);
+  const [cycles, setCycles] = useState<Cycle[]>([]);
+
+  const [selectedCycleIds, setSelectedCycleIds] = useState<string[]>(() =>
+    parseList(search.get("cycles")),
+  );
+  const [selectedMetrics, setSelectedMetrics] = useState<string[]>(() => {
+    const fromUrl = parseList(search.get("metrics"));
+    return fromUrl.length ? fromUrl : ["ph_am", "ph_pm"];
+  });
+
+  const [pointsByKey, setPointsByKey] = useState<Record<string, DocPoint[]>>({});
+  const [loadingKeys, setLoadingKeys] = useState<string[]>([]);
+  const inFlight = useRef(new Set<string>());
+
+  const [hidden, setHidden] = useState<Set<string>>(new Set());
+  const [docRange, setDocRange] = useState<{ from: number; to: number } | null>(null);
+  const [smoothWindow, setSmoothWindow] = useState(1);
+  const [normalize, setNormalize] = useState(false);
+  const [connectNulls, setConnectNulls] = useState(true);
+  const [includePredicted, setIncludePredicted] = useState(false);
+  const [pickerOpen, setPickerOpen] = useState(true);
+  const [cycleFilter, setCycleFilter] = useState("");
+  const [openMetricGroups, setOpenMetricGroups] = useState<MetricGroup[]>(["Water parameters"]);
+
+  useEffect(() => {
+    getSupabase()
+      .auth.getSession()
+      .then(async ({ data }) => {
+        if (!data.session) {
+          router.replace("/login");
+          return;
+        }
+        const visibleFarms = await api.listFarms();
+        setFarms(visibleFarms);
+        setFarmId(visibleFarms[0]?.id ?? "");
+        setAuthChecked(true);
+      });
+  }, [router]);
+
+  useEffect(() => {
+    if (!farmId) return;
+    let cancelled = false;
+    Promise.all([
+      api.listGrids(farmId),
+      api.listPonds(undefined, farmId),
+      api.listCycles(farmId),
+    ]).then(([g, p, c]) => {
+      if (cancelled) return;
+      setGrids(g);
+      setPonds(p);
+      setCycles(c);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [farmId]);
+
+  // Keep the URL in sync so a comparison can be bookmarked or shared.
+  useEffect(() => {
+    const params = new URLSearchParams();
+    if (selectedCycleIds.length) params.set("cycles", selectedCycleIds.join(","));
+    if (selectedMetrics.length) params.set("metrics", selectedMetrics.join(","));
+    const query = params.toString();
+    router.replace(query ? `/trends?${query}` : "/trends", { scroll: false });
+  }, [selectedCycleIds, selectedMetrics, router]);
+
+  const cycleById = useMemo(() => new Map(cycles.map((c) => [c.id, c])), [cycles]);
+  const pondById = useMemo(() => new Map(ponds.map((p) => [p.id, p])), [ponds]);
+  const gridById = useMemo(() => new Map(grids.map((g) => [g.id, g])), [grids]);
+
+  // Fetch every missing (cycle, metric) pair. Results are cached by key so
+  // toggling a metric off and back on does not refetch.
+  useEffect(() => {
+    const wanted: string[] = [];
+    for (const cycleId of selectedCycleIds) {
+      if (!cycleById.has(cycleId)) continue;
+      for (const metric of selectedMetrics) {
+        const key = seriesKey(cycleId, metric);
+        if (!(key in pointsByKey) && !inFlight.current.has(key)) wanted.push(key);
+      }
+    }
+    if (!wanted.length) return;
+
+    wanted.forEach((key) => inFlight.current.add(key));
+    setLoadingKeys(Array.from(inFlight.current));
+
+    wanted.forEach(async (key) => {
+      const [cycleId, metric] = key.split(":");
+      try {
+        const cycle = cycleById.get(cycleId);
+        if (!cycle) throw new Error("Cycle went away");
+
+        const from = cycle.start_date;
+        const to = maxIso(
+          from,
+          cycle.actual_end_date ?? cycle.planned_end_date ?? todayIso(),
+        );
+
+        const result = await api.getCycleTrend(cycleId, metric, from, to);
+        const start = parseISO(from);
+        const points: DocPoint[] = [];
+        for (const point of result.points) {
+          if (point.value === null) continue;
+          const value = Number(point.value);
+          if (!Number.isFinite(value)) continue;
+          points.push({
+            doc: differenceInCalendarDays(parseISO(point.date), start) + 1,
+            value,
+            isFuture: point.is_future,
+          });
+        }
+        setPointsByKey((current) => ({ ...current, [key]: points }));
+      } catch {
+        setPointsByKey((current) => ({ ...current, [key]: [] }));
+      } finally {
+        inFlight.current.delete(key);
+        setLoadingKeys(Array.from(inFlight.current));
+      }
+    });
+  }, [selectedCycleIds, selectedMetrics, cycleById, pointsByKey]);
+
+  const cycleLabels = useMemo(() => {
+    const labels = new Map<string, string>();
+    const counts = new Map<string, number>();
+
+    for (const cycleId of selectedCycleIds) {
+      const cycle = cycleById.get(cycleId);
+      if (!cycle) continue;
+      const pond = pondById.get(cycle.pond_id);
+      const short = `${pond?.name ?? "Pond"} - ${cycle.name}`;
+      counts.set(short, (counts.get(short) ?? 0) + 1);
+    }
+
+    for (const cycleId of selectedCycleIds) {
+      const cycle = cycleById.get(cycleId);
+      if (!cycle) continue;
+      const pond = pondById.get(cycle.pond_id);
+      const grid = pond ? gridById.get(pond.grid_id) : undefined;
+      const short = `${pond?.name ?? "Pond"} - ${cycle.name}`;
+      labels.set(cycleId, (counts.get(short) ?? 0) > 1 ? `${grid?.name ?? "?"}/${short}` : short);
+    }
+
+    return labels;
+  }, [selectedCycleIds, cycleById, pondById, gridById]);
+
+  const series = useMemo<ChartSeries[]>(() => {
+    const multiCycle = selectedCycleIds.length > 1;
+    const multiMetric = selectedMetrics.length > 1;
+    const list: ChartSeries[] = [];
+
+    selectedCycleIds.forEach((cycleId, cycleIndex) => {
+      if (!cycleById.has(cycleId)) return;
+      selectedMetrics.forEach((metric, metricIndex) => {
+        const def = metricDef(metric);
+        const key = seriesKey(cycleId, metric);
+        const values = new Map<number, number>();
+        for (const point of pointsByKey[key] ?? []) {
+          if (!includePredicted && point.isFuture) continue;
+          values.set(point.doc, point.value);
+        }
+
+        // One cycle: colour tells the metrics apart. One metric: colour tells
+        // the cycles apart. Both: colour is the cycle, dash is the metric.
+        const colorIndex = multiCycle ? cycleIndex : metricIndex;
+        const dash = multiCycle && multiMetric ? METRIC_DASHES[metricIndex % METRIC_DASHES.length] : undefined;
+
+        list.push({
+          id: key,
+          cycleLabel: cycleLabels.get(cycleId) ?? "Cycle",
+          metricLabel: def.label,
+          unit: def.unit,
+          axisGroup: def.axisGroup,
+          color: CYCLE_COLORS[colorIndex % CYCLE_COLORS.length],
+          dash,
+          values,
+        });
+      });
+    });
+
+    return list;
+  }, [selectedCycleIds, selectedMetrics, cycleById, pointsByKey, includePredicted, cycleLabels]);
+
+  const maxDoc = useMemo(() => {
+    let max = 0;
+    for (const s of series) {
+      if (hidden.has(s.id)) continue;
+      for (const doc of s.values.keys()) if (doc > max) max = doc;
+    }
+    return max;
+  }, [series, hidden]);
+
+  const docFrom = Math.max(1, Math.min(docRange?.from ?? 1, Math.max(maxDoc, 1)));
+  const docTo = Math.max(docFrom, Math.min(docRange?.to ?? maxDoc, Math.max(maxDoc, 1)));
+
+  const toggleCycle = useCallback((cycleId: string) => {
+    setSelectedCycleIds((current) =>
+      current.includes(cycleId)
+        ? current.filter((id) => id !== cycleId)
+        : [...current, cycleId],
+    );
+  }, []);
+
+  const toggleMetric = useCallback((metric: string) => {
+    setSelectedMetrics((current) =>
+      current.includes(metric) ? current.filter((m) => m !== metric) : [...current, metric],
+    );
+  }, []);
+
+  const toggleSeries = useCallback((id: string) => {
+    setHidden((current) => {
+      const next = new Set(current);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }, []);
+
+  function toggleMetricGroup(group: MetricGroup) {
+    setOpenMetricGroups((current) =>
+      current.includes(group) ? current.filter((g) => g !== group) : [...current, group],
+    );
+  }
+
+  const gridSections = useMemo(() => {
+    const needle = cycleFilter.trim().toLowerCase();
+    return grids
+      .map((grid) => {
+        const gridPonds = ponds
+          .filter((pond) => pond.grid_id === grid.id)
+          .map((pond) => ({
+            pond,
+            cycles: cycles.filter((cycle) => {
+              if (cycle.pond_id !== pond.id) return false;
+              if (!needle) return true;
+              return `${grid.name} ${pond.name} ${cycle.name}`.toLowerCase().includes(needle);
+            }),
+          }))
+          .filter((entry) => entry.cycles.length > 0);
+        return { grid, ponds: gridPonds };
+      })
+      .filter((section) => section.ponds.length > 0);
+  }, [grids, ponds, cycles, cycleFilter]);
+
+  if (!authChecked) return <main className="p-6 text-sm text-slate-500">Loading...</main>;
+
+  const loading = loadingKeys.length > 0;
+
+  return (
+    <main className="max-w-5xl mx-auto p-4 sm:p-6 space-y-4">
+      <Link href="/" className="text-sm text-slate-500 hover:underline">
+        &larr; Farm
+      </Link>
+
+      <div className="flex flex-wrap items-baseline justify-between gap-2">
+        <h1 className="text-2xl font-semibold">Trend comparison</h1>
+        {farms.length > 1 ? (
+          <select
+            value={farmId}
+            onChange={(e) => {
+              setFarmId(e.target.value);
+              setSelectedCycleIds([]);
+            }}
+            className="border rounded px-2 py-1 text-sm"
+          >
+            {farms.map((farm) => (
+              <option key={farm.id} value={farm.id}>
+                {farm.name}
+              </option>
+            ))}
+          </select>
+        ) : null}
+      </div>
+
+      <section className="bg-white rounded-lg shadow">
+        <button
+          onClick={() => setPickerOpen((v) => !v)}
+          className="w-full flex items-center justify-between px-4 py-3 text-left"
+        >
+          <span className="font-medium">
+            Cycles
+            <span className="ml-2 text-sm font-normal text-slate-500">
+              {selectedCycleIds.length} selected
+            </span>
+          </span>
+          <span className="text-slate-400 text-sm">{pickerOpen ? "hide" : "show"}</span>
+        </button>
+
+        {pickerOpen ? (
+          <div className="px-4 pb-4 space-y-3">
+            <div className="flex flex-wrap gap-2">
+              <input
+                value={cycleFilter}
+                onChange={(e) => setCycleFilter(e.target.value)}
+                placeholder="Filter grid, pond or cycle"
+                className="flex-1 min-w-[12rem] border rounded px-3 py-1.5 text-sm"
+              />
+              {selectedCycleIds.length ? (
+                <button
+                  onClick={() => setSelectedCycleIds([])}
+                  className="text-sm border px-3 py-1.5 rounded text-slate-600"
+                >
+                  Clear
+                </button>
+              ) : null}
+            </div>
+
+            {gridSections.length === 0 ? (
+              <p className="text-sm text-slate-500">No cycles match.</p>
+            ) : (
+              <div className="space-y-3 max-h-80 overflow-y-auto pr-1">
+                {gridSections.map(({ grid, ponds: gridPonds }) => (
+                  <div key={grid.id}>
+                    <div className="text-xs font-medium uppercase tracking-wide text-slate-400 mb-1">
+                      {grid.name}
+                    </div>
+                    <div className="space-y-1.5">
+                      {gridPonds.map(({ pond, cycles: pondCycles }) => (
+                        <div key={pond.id} className="pl-2 border-l-2 border-slate-100">
+                          <div className="text-xs text-slate-500 mb-1">{pond.name}</div>
+                          <div className="flex flex-wrap gap-1.5">
+                            {pondCycles.map((cycle) => {
+                              const active = selectedCycleIds.includes(cycle.id);
+                              return (
+                                <button
+                                  key={cycle.id}
+                                  onClick={() => toggleCycle(cycle.id)}
+                                  title={`${cycle.start_date} - ${cycle.actual_end_date ?? cycle.planned_end_date ?? "open"}`}
+                                  className={`text-sm px-2.5 py-1 rounded border ${
+                                    active
+                                      ? "bg-primary text-white border-primary"
+                                      : "bg-white text-slate-700 hover:bg-slate-50"
+                                  }`}
+                                >
+                                  {cycle.name}
+                                  <span
+                                    className={`ml-1.5 text-xs ${active ? "text-teal-100" : "text-slate-400"}`}
+                                  >
+                                    {cycle.start_date.slice(0, 7)}
+                                  </span>
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        ) : null}
+      </section>
+
+      <section className="bg-white rounded-lg shadow p-4 space-y-3">
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="font-medium mr-1">Parameters</span>
+          {PRESETS.map((preset) => (
+            <button
+              key={preset.label}
+              onClick={() => setSelectedMetrics(preset.metrics)}
+              className="text-xs px-2 py-1 rounded-full border border-slate-200 text-slate-600 hover:bg-slate-50"
+            >
+              {preset.label}
+            </button>
+          ))}
+        </div>
+
+        {METRIC_GROUPS.map((group) => {
+          const open = openMetricGroups.includes(group);
+          const groupMetrics = METRIC_DEFS.filter((m) => m.group === group);
+          const selectedInGroup = groupMetrics.filter((m) =>
+            selectedMetrics.includes(m.key),
+          ).length;
+
+          return (
+            <div key={group}>
+              <button
+                onClick={() => toggleMetricGroup(group)}
+                className="w-full flex items-center justify-between text-left text-xs font-medium text-slate-500 mb-1.5"
+              >
+                <span>
+                  {group}
+                  {selectedInGroup ? (
+                    <span className="ml-1.5 text-primary">({selectedInGroup})</span>
+                  ) : null}
+                </span>
+                <span className="text-slate-400">{open ? "-" : "+"}</span>
+              </button>
+              {open ? (
+                <div className="flex flex-wrap gap-1.5">
+                  {groupMetrics.map((m) => {
+                    const active = selectedMetrics.includes(m.key);
+                    return (
+                      <button
+                        key={m.key}
+                        onClick={() => toggleMetric(m.key)}
+                        className={`text-sm px-2.5 py-1 rounded border ${
+                          active
+                            ? "bg-primary text-white border-primary"
+                            : "bg-white text-slate-700 hover:bg-slate-50"
+                        }`}
+                      >
+                        {m.label}
+                      </button>
+                    );
+                  })}
+                </div>
+              ) : null}
+            </div>
+          );
+        })}
+      </section>
+
+      <section className="bg-white rounded-lg shadow p-3 flex flex-wrap items-center gap-x-5 gap-y-2 text-sm">
+        <label className="flex items-center gap-1.5">
+          <span className="text-slate-500">DOC</span>
+          <input
+            type="number"
+            min={1}
+            max={Math.max(maxDoc, 1)}
+            value={docFrom}
+            onChange={(e) =>
+              setDocRange({ from: Number(e.target.value) || 1, to: docTo })
+            }
+            className="w-16 border rounded px-2 py-1"
+          />
+          <span className="text-slate-400">to</span>
+          <input
+            type="number"
+            min={1}
+            max={Math.max(maxDoc, 1)}
+            value={docTo}
+            onChange={(e) =>
+              setDocRange({ from: docFrom, to: Number(e.target.value) || maxDoc })
+            }
+            className="w-16 border rounded px-2 py-1"
+          />
+          {docRange ? (
+            <button
+              onClick={() => setDocRange(null)}
+              className="text-xs text-primary hover:underline"
+            >
+              reset
+            </button>
+          ) : null}
+        </label>
+
+        <label className="flex items-center gap-1.5">
+          <span className="text-slate-500">Smoothing</span>
+          <select
+            value={smoothWindow}
+            onChange={(e) => setSmoothWindow(Number(e.target.value))}
+            className="border rounded px-2 py-1"
+          >
+            {SMOOTH_OPTIONS.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+        </label>
+
+        <label className="flex items-center gap-1.5">
+          <input
+            type="checkbox"
+            checked={normalize}
+            onChange={(e) => setNormalize(e.target.checked)}
+          />
+          <span className="text-slate-600">Normalize</span>
+        </label>
+
+        <label className="flex items-center gap-1.5">
+          <input
+            type="checkbox"
+            checked={connectNulls}
+            onChange={(e) => setConnectNulls(e.target.checked)}
+          />
+          <span className="text-slate-600">Connect gaps</span>
+        </label>
+
+        <label className="flex items-center gap-1.5">
+          <input
+            type="checkbox"
+            checked={includePredicted}
+            onChange={(e) => setIncludePredicted(e.target.checked)}
+          />
+          <span className="text-slate-600">Include predicted</span>
+        </label>
+
+        <span className="ml-auto text-xs text-slate-400">
+          {loading ? "Loading..." : maxDoc ? `DOC 1-${maxDoc} with data` : "No data"}
+        </span>
+      </section>
+
+      <DocTrendChart
+        series={series}
+        docFrom={docFrom}
+        docTo={docTo}
+        smoothWindow={smoothWindow}
+        normalize={normalize}
+        connectNulls={connectNulls}
+        hidden={hidden}
+        onToggleSeries={toggleSeries}
+      />
+    </main>
+  );
+}

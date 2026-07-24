@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 
@@ -158,9 +159,14 @@ export default function Home() {
           <h1 className="text-2xl font-semibold">{selectedFarm?.name ?? "Farm"}</h1>
           {selectedFarm && <div className="text-xs text-slate-500">{selectedFarm.role}</div>}
         </div>
-        <button onClick={signOut} className="text-sm text-slate-600 hover:underline">
-          Sign out
-        </button>
+        <div className="flex items-center gap-4">
+          <Link href="/trends" className="text-sm text-primary hover:underline">
+            Trends
+          </Link>
+          <button onClick={signOut} className="text-sm text-slate-600 hover:underline">
+            Sign out
+          </button>
+        </div>
       </header>
 
       {role === "admin" && (
