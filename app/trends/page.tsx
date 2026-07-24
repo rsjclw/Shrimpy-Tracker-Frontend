@@ -38,6 +38,8 @@ const SMOOTH_OPTIONS = [
 
 type DocPoint = { doc: number; value: number; isFuture: boolean };
 
+const FARM_STORAGE_KEY = "trends-last-farm";
+
 function todayIso() {
   return format(new Date(), "yyyy-MM-dd");
 }
@@ -67,18 +69,22 @@ function TrendsCompare() {
   const search = useSearchParams();
 
   const [authChecked, setAuthChecked] = useState(false);
+  const [dataLoaded, setDataLoaded] = useState(false);
   const [farms, setFarms] = useState<Farm[]>([]);
   const [farmId, setFarmId] = useState("");
   const [grids, setGrids] = useState<Grid[]>([]);
   const [ponds, setPonds] = useState<Pond[]>([]);
   const [cycles, setCycles] = useState<Cycle[]>([]);
+  const farmInitialized = useRef(false);
+  const scrolledToSelection = useRef(false);
+  const pickerRef = useRef<HTMLDivElement>(null);
 
   const [selectedCycleIds, setSelectedCycleIds] = useState<string[]>(() =>
     parseList(search.get("cycles")),
   );
   const [selectedMetrics, setSelectedMetrics] = useState<string[]>(() => {
     const fromUrl = parseList(search.get("metrics"));
-    return fromUrl.length ? fromUrl : ["ph_am", "ph_pm"];
+    return fromUrl.length ? fromUrl : ["daily_feed_kg"];
   });
 
   const [pointsByKey, setPointsByKey] = useState<Record<string, DocPoint[]>>({});
@@ -93,7 +99,7 @@ function TrendsCompare() {
   const [includePredicted, setIncludePredicted] = useState(false);
   const [pickerOpen, setPickerOpen] = useState(true);
   const [cycleFilter, setCycleFilter] = useState("");
-  const [openMetricGroups, setOpenMetricGroups] = useState<MetricGroup[]>(["Water parameters"]);
+  const [openMetricGroups, setOpenMetricGroups] = useState<MetricGroup[]>([...METRIC_GROUPS]);
 
   useEffect(() => {
     getSupabase()
@@ -103,30 +109,28 @@ function TrendsCompare() {
           router.replace("/login");
           return;
         }
-        const visibleFarms = await api.listFarms();
-        setFarms(visibleFarms);
-        setFarmId(visibleFarms[0]?.id ?? "");
+        setFarms(await api.listFarms());
         setAuthChecked(true);
       });
   }, [router]);
 
+  // Everything the account can see is loaded once, unfiltered. The farm
+  // selector then only filters the picker, so a deep link to a cycle resolves
+  // no matter which farm it belongs to.
   useEffect(() => {
-    if (!farmId) return;
+    if (!authChecked) return;
     let cancelled = false;
-    Promise.all([
-      api.listGrids(farmId),
-      api.listPonds(undefined, farmId),
-      api.listCycles(farmId),
-    ]).then(([g, p, c]) => {
+    Promise.all([api.listGrids(), api.listPonds(), api.listCycles()]).then(([g, p, c]) => {
       if (cancelled) return;
       setGrids(g);
       setPonds(p);
       setCycles(c);
+      setDataLoaded(true);
     });
     return () => {
       cancelled = true;
     };
-  }, [farmId]);
+  }, [authChecked]);
 
   // Keep the URL in sync so a comparison can be bookmarked or shared.
   useEffect(() => {
@@ -140,6 +144,40 @@ function TrendsCompare() {
   const cycleById = useMemo(() => new Map(cycles.map((c) => [c.id, c])), [cycles]);
   const pondById = useMemo(() => new Map(ponds.map((p) => [p.id, p])), [ponds]);
   const gridById = useMemo(() => new Map(grids.map((g) => [g.id, g])), [grids]);
+
+  const farmIdOfCycle = useCallback(
+    (cycleId: string) => {
+      const pond = pondById.get(cycleById.get(cycleId)?.pond_id ?? "");
+      return pond ? gridById.get(pond.grid_id)?.farm_id : undefined;
+    },
+    [cycleById, pondById, gridById],
+  );
+
+  // Land on the farm that actually holds the selected cycle, then on the farm
+  // last used on this page. farms[0] is only the final fallback.
+  useEffect(() => {
+    if (farmInitialized.current || !dataLoaded || !farms.length) return;
+    farmInitialized.current = true;
+
+    const known = (id: string | null | undefined) => Boolean(id && farms.some((f) => f.id === id));
+    const fromSelection = selectedCycleIds.map(farmIdOfCycle).find(known);
+    const remembered = window.localStorage.getItem(FARM_STORAGE_KEY);
+
+    setFarmId(known(fromSelection) ? fromSelection! : known(remembered) ? remembered! : farms[0].id);
+  }, [dataLoaded, farms, selectedCycleIds, farmIdOfCycle]);
+
+  useEffect(() => {
+    if (farmId) window.localStorage.setItem(FARM_STORAGE_KEY, farmId);
+  }, [farmId]);
+
+  // Bring the deep-linked cycle into view inside the scrollable picker.
+  useEffect(() => {
+    if (scrolledToSelection.current || !farmId || !selectedCycleIds.length) return;
+    const target = pickerRef.current?.querySelector(`[data-cycle-id="${selectedCycleIds[0]}"]`);
+    if (!target) return;
+    scrolledToSelection.current = true;
+    target.scrollIntoView({ block: "nearest" });
+  }, [farmId, selectedCycleIds, cycles]);
 
   // Fetch every missing (cycle, metric) pair. Results are cached by key so
   // toggling a metric off and back on does not refetch.
@@ -297,6 +335,7 @@ function TrendsCompare() {
   const gridSections = useMemo(() => {
     const needle = cycleFilter.trim().toLowerCase();
     return grids
+      .filter((grid) => grid.farm_id === farmId)
       .map((grid) => {
         const gridPonds = ponds
           .filter((pond) => pond.grid_id === grid.id)
@@ -312,7 +351,7 @@ function TrendsCompare() {
         return { grid, ponds: gridPonds };
       })
       .filter((section) => section.ponds.length > 0);
-  }, [grids, ponds, cycles, cycleFilter]);
+  }, [grids, ponds, cycles, cycleFilter, farmId]);
 
   if (!authChecked) return <main className="p-6 text-sm text-slate-500">Loading...</main>;
 
@@ -329,10 +368,7 @@ function TrendsCompare() {
         {farms.length > 1 ? (
           <select
             value={farmId}
-            onChange={(e) => {
-              setFarmId(e.target.value);
-              setSelectedCycleIds([]);
-            }}
+            onChange={(e) => setFarmId(e.target.value)}
             className="border rounded px-2 py-1 text-sm"
           >
             {farms.map((farm) => (
@@ -380,7 +416,7 @@ function TrendsCompare() {
             {gridSections.length === 0 ? (
               <p className="text-sm text-slate-500">No cycles match.</p>
             ) : (
-              <div className="space-y-3 max-h-80 overflow-y-auto pr-1">
+              <div ref={pickerRef} className="space-y-3 max-h-80 overflow-y-auto pr-1">
                 {gridSections.map(({ grid, ponds: gridPonds }) => (
                   <div key={grid.id}>
                     <div className="text-xs font-medium uppercase tracking-wide text-slate-400 mb-1">
@@ -396,6 +432,7 @@ function TrendsCompare() {
                               return (
                                 <button
                                   key={cycle.id}
+                                  data-cycle-id={cycle.id}
                                   onClick={() => toggleCycle(cycle.id)}
                                   title={`${cycle.start_date} - ${cycle.actual_end_date ?? cycle.planned_end_date ?? "open"}`}
                                   className={`text-sm px-2.5 py-1 rounded border ${
