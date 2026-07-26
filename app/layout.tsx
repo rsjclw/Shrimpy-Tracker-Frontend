@@ -14,7 +14,21 @@ export const viewport: Viewport = {
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en">
-      <body>{children}</body>
+      <body className="flex min-h-screen flex-col">
+        <div className="flex-1">{children}</div>
+        {/* Open-Meteo data is CC BY 4.0 - attribution is a licence condition. */}
+        <footer className="px-4 py-3 text-center text-xs text-slate-400">
+          Weather data by{" "}
+          <a
+            href="https://open-meteo.com/"
+            target="_blank"
+            rel="noreferrer"
+            className="hover:underline"
+          >
+            Open-Meteo.com
+          </a>
+        </footer>
+      </body>
     </html>
   );
 }

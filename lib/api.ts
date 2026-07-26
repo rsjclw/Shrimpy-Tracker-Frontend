@@ -43,7 +43,19 @@ export type RegisteredUser = {
   last_sign_in_at: string | null;
   is_admin: boolean;
 };
-export type Grid = { id: string; farm_id: string; name: string; notes: string | null; created_at: string };
+export type Grid = {
+  id: string;
+  farm_id: string;
+  name: string;
+  notes: string | null;
+  created_at: string;
+  latitude: string | null;
+  longitude: string | null;
+  // Resolved from the coordinates by the backend; read-only here.
+  timezone: string | null;
+  elevation_m: string | null;
+  weather_synced_at: string | null;
+};
 export type Pond = {
   id: string;
   grid_id: string;
@@ -214,6 +226,41 @@ export type SamplingMetrics = {
   feed_since_previous_sample_kg: string | null;
   sample_fcr: string | null;
 };
+export type LunarDay = {
+  illumination: number; // 0-1, display only
+  waxing: boolean;
+  days_to_full: number; // signed; negative means the full moon has passed
+  days_to_new: number;
+  window: "full" | "new" | null;
+  is_peak: boolean;
+  alert: "full" | "new" | null;
+};
+export type DayEnvironment = {
+  date: string;
+  temp_min_c: string | null;
+  temp_max_c: string | null;
+  temp_mean_c: string | null;
+  shortwave_radiation_sum_mj: string | null;
+  sunshine_duration_hours: string | null;
+  cloud_cover_daylight_pct: string | null;
+  precipitation_mm: string | null;
+  precipitation_hours: string | null;
+  precipitation_probability_max_pct: string | null;
+  is_forecast: boolean;
+  source: string;
+  fetched_at: string | null;
+};
+export type GridEnvironment = {
+  grid_id: string;
+  timezone: string | null;
+  days: DayEnvironment[];
+};
+export type EnvironmentRefresh = {
+  grid_id: string;
+  days_written: number;
+  timezone: string | null;
+  synced_at: string | null;
+};
 export type DayView = {
   daily_log_id: string | null;
   cycle_id: string;
@@ -228,6 +275,8 @@ export type DayView = {
   water: WaterParameters | null;
   treatments: Treatment[];
   metrics: DayMetrics;
+  lunar: LunarDay;
+  environment: DayEnvironment | null;
 };
 export type TrendPoint = {
   date: string;
@@ -347,11 +396,23 @@ export const api = {
   listRegisteredUsers: () => request<RegisteredUser[]>("/farms/registered-users"),
 
   listGrids: (farmId?: string) => request<Grid[]>(`/grids${farmId ? `?farm_id=${farmId}` : ""}`),
-  createGrid: (b: { farm_id: string; name: string; notes?: string }) =>
-    request<Grid>("/grids", { method: "POST", body: JSON.stringify(b) }),
-  updateGrid: (id: string, b: { name: string; notes?: string }) =>
-    request<Grid>(`/grids/${id}`, { method: "PUT", body: JSON.stringify(b) }),
+  createGrid: (b: {
+    farm_id: string;
+    name: string;
+    notes?: string;
+    latitude?: number | null;
+    longitude?: number | null;
+  }) => request<Grid>("/grids", { method: "POST", body: JSON.stringify(b) }),
+  // Omit latitude/longitude to leave the grid's location untouched.
+  updateGrid: (
+    id: string,
+    b: { name: string; notes?: string; latitude?: number | null; longitude?: number | null },
+  ) => request<Grid>(`/grids/${id}`, { method: "PUT", body: JSON.stringify(b) }),
   deleteGrid: (id: string) => request<void>(`/grids/${id}`, { method: "DELETE" }),
+  getGridEnvironment: (gridId: string, from: string, to: string) =>
+    request<GridEnvironment>(`/grids/${gridId}/environment?from=${from}&to=${to}`),
+  refreshGridEnvironment: (gridId: string) =>
+    request<EnvironmentRefresh>(`/grids/${gridId}/environment/refresh`, { method: "POST" }),
   listGridPonds: (gridId: string) => request<Pond[]>(`/grids/${gridId}/ponds`),
 
   updatePond: (id: string, b: { name: string; area_m2?: number }) =>

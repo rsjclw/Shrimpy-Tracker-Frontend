@@ -32,16 +32,35 @@ export function GridsSection({
 }) {
   const [showNew, setShowNew] = useState(false);
   const [newName, setNewName] = useState("");
+  const [newLat, setNewLat] = useState("");
+  const [newLon, setNewLon] = useState("");
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editName, setEditName] = useState("");
+  const [editLat, setEditLat] = useState("");
+  const [editLon, setEditLon] = useState("");
 
   const pondCount = (gridId: string) => ponds.filter((p) => p.grid_id === gridId).length;
+
+  /** Blank clears the coordinate; anything unparseable is left alone. */
+  function coordinate(value: string): number | null | undefined {
+    const trimmed = value.trim();
+    if (!trimmed) return null;
+    const parsed = Number(trimmed);
+    return Number.isFinite(parsed) ? parsed : undefined;
+  }
 
   async function create(e: React.FormEvent) {
     e.preventDefault();
     if (!newName.trim()) return;
-    await api.createGrid({ farm_id: farmId, name: newName.trim() });
+    await api.createGrid({
+      farm_id: farmId,
+      name: newName.trim(),
+      latitude: coordinate(newLat),
+      longitude: coordinate(newLon),
+    });
     setNewName("");
+    setNewLat("");
+    setNewLon("");
     setShowNew(false);
     onReload();
   }
@@ -49,9 +68,21 @@ export function GridsSection({
   async function save(e: React.FormEvent, id: string) {
     e.preventDefault();
     if (!editName.trim()) return;
-    await api.updateGrid(id, { name: editName.trim() });
+    await api.updateGrid(id, {
+      name: editName.trim(),
+      latitude: coordinate(editLat),
+      longitude: coordinate(editLon),
+    });
     setEditingId(null);
     onReload();
+  }
+
+  function startEdit(g: Grid) {
+    setEditingId(g.id);
+    setEditName(g.name);
+    setEditLat(g.latitude ?? "");
+    setEditLon(g.longitude ?? "");
+    setShowNew(false);
   }
 
   async function remove(id: string, name: string) {
@@ -78,16 +109,37 @@ export function GridsSection({
       }
     >
       {showNew && (
-        <form onSubmit={create} className="flex gap-2">
+        <form onSubmit={create} className="space-y-2">
           <input
             autoFocus
             value={newName}
             onChange={(e) => setNewName(e.target.value)}
             placeholder="Grid name (e.g. Grid A)"
-            className="flex-1 border rounded px-3 py-2"
+            className="w-full border rounded px-3 py-2"
           />
-          <button className="bg-primary text-white px-4 rounded">Add</button>
-          <button type="button" onClick={() => setShowNew(false)} className="border px-3 rounded">Cancel</button>
+          <div className="flex gap-2">
+            <input
+              value={newLat}
+              onChange={(e) => setNewLat(e.target.value)}
+              placeholder="Latitude (e.g. -6.9)"
+              inputMode="decimal"
+              className="flex-1 border rounded px-3 py-2"
+            />
+            <input
+              value={newLon}
+              onChange={(e) => setNewLon(e.target.value)}
+              placeholder="Longitude (e.g. 106.5)"
+              inputMode="decimal"
+              className="flex-1 border rounded px-3 py-2"
+            />
+          </div>
+          <p className="text-xs text-slate-500">
+            Coordinates enable weather and set the timezone. Optional.
+          </p>
+          <div className="flex gap-2">
+            <button className="bg-primary text-white px-4 py-2 rounded">Add</button>
+            <button type="button" onClick={() => setShowNew(false)} className="border px-3 rounded">Cancel</button>
+          </div>
         </form>
       )}
 
@@ -106,6 +158,25 @@ export function GridsSection({
                     className="w-full border rounded px-2 py-1"
                   />
                   <div className="flex gap-2">
+                    <input
+                      value={editLat}
+                      onChange={(e) => setEditLat(e.target.value)}
+                      placeholder="Latitude"
+                      inputMode="decimal"
+                      className="w-full border rounded px-2 py-1"
+                    />
+                    <input
+                      value={editLon}
+                      onChange={(e) => setEditLon(e.target.value)}
+                      placeholder="Longitude"
+                      inputMode="decimal"
+                      className="w-full border rounded px-2 py-1"
+                    />
+                  </div>
+                  {g.timezone && (
+                    <p className="text-xs text-slate-500">Timezone: {g.timezone}</p>
+                  )}
+                  <div className="flex gap-2">
                     <button className="text-xs bg-primary text-white px-3 py-1 rounded">Save</button>
                     <button type="button" onClick={() => setEditingId(null)} className="text-xs border px-3 py-1 rounded">Cancel</button>
                   </div>
@@ -115,11 +186,14 @@ export function GridsSection({
                   <Link href={`/grids/${g.id}`} className="block">
                     <div className="font-medium">{g.name}</div>
                     <div className="text-sm text-slate-500">{pondCount(g.id)} pond(s)</div>
+                    {g.timezone && (
+                      <div className="text-xs text-slate-400">{g.timezone}</div>
+                    )}
                   </Link>
                   {canManage(role) && (
                     <div className="flex gap-3 mt-2">
                       <button
-                        onClick={() => { setEditingId(g.id); setEditName(g.name); setShowNew(false); }}
+                        onClick={() => startEdit(g)}
                         className="text-xs text-primary hover:underline"
                       >
                         edit

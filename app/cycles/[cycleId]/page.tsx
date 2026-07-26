@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 
+import { ConditionsCard } from "@/components/ConditionsCard";
 import { DailyMetricsCard } from "@/components/DailyMetricsCard";
 import { DateNavigator } from "@/components/DateNavigator";
 import { FeedingTable } from "@/components/FeedingTable";
@@ -322,6 +323,8 @@ export default function CyclePage() {
       />
 
       <DailyMetricsCard cycleId={cycleId} metrics={currentDay.metrics} />
+
+      <ConditionsCard lunar={currentDay.lunar} environment={currentDay.environment} />
 
       <HarvestCard
         dailyLogId={currentDay.daily_log_id}
