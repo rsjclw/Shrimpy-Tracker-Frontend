@@ -10,8 +10,8 @@ type Props = {
 };
 
 const WINDOW_LABEL: Record<"full" | "new", string> = {
-  full: "Purnama",
-  new: "Bulan mati",
+  full: "Full moon",
+  new: "New moon",
 };
 
 /** Moon glyph for the illuminated fraction and the direction of travel. */
@@ -28,22 +28,22 @@ function plural(days: number) {
 }
 
 /**
- * The signed distance is what makes this useful: only the run-up to a syzygy
- * is a cue to dose, the tail of a window is not.
+ * States the moon's position, not what to do about it. The signed distance
+ * still drives the tone: the run-up is highlighted, the tail is not.
  */
 function moonMessage(lunar: LunarDay) {
   const { window, alert, is_peak, days_to_full, days_to_new } = lunar;
 
   if (is_peak && window) {
     return {
-      text: `${WINDOW_LABEL[window]} today — peak molt, keep alkalinity and minerals up`,
+      text: `${WINDOW_LABEL[window]} today — peak molt`,
       tone: "peak" as const,
     };
   }
   if (alert) {
     const days = Math.round(alert === "full" ? days_to_full : days_to_new);
     return {
-      text: `${WINDOW_LABEL[alert]} in ${days} ${plural(days)} — start dosing lime and minerals`,
+      text: `${WINDOW_LABEL[alert]} in ${days} ${plural(days)}`,
       tone: "alert" as const,
     };
   }
@@ -60,8 +60,8 @@ function moonMessage(lunar: LunarDay) {
   }
 
   // The soonest syzygy still ahead of us. Picking by absolute distance would
-  // count a syzygy that has already passed and read "purnama in 3 days" three
-  // days after the full moon.
+  // count a syzygy that has already passed and read "full moon in 3 days"
+  // three days after the full moon.
   const upcoming = [
     { kind: "full" as const, days: days_to_full },
     { kind: "new" as const, days: days_to_new },
