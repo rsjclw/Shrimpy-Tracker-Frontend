@@ -1,4 +1,8 @@
-export type MetricGroup = "Daily metrics" | "Water parameters" | "Plankton & Bacteria";
+export type MetricGroup =
+  | "Daily metrics"
+  | "Water parameters"
+  | "Plankton & Bacteria"
+  | "Weather";
 
 export type MetricDef = {
   key: string;
@@ -54,12 +58,25 @@ export const METRIC_DEFS: MetricDef[] = [
   { key: "total_vibrio_count", label: "Total Vibrio count", group: "Plankton & Bacteria", unit: "CFU/mL", axisGroup: "total_vibrio" },
   { key: "tbc", label: "TBC", group: "Plankton & Bacteria", unit: "CFU/mL", axisGroup: "tbc" },
   { key: "vibrio_percentage", label: "Vibrio percentage", group: "Plankton & Bacteria", unit: "%", axisGroup: "vibrio_pct" },
+
+  // Cached per grid, so every pond and cycle under a grid plots the same
+  // series. The three temperatures share an axis so they read as a band.
+  { key: "temp_min_c", label: "Temp min", group: "Weather", unit: "°C", axisGroup: "air_temp" },
+  { key: "temp_mean_c", label: "Temp avg", group: "Weather", unit: "°C", axisGroup: "air_temp" },
+  { key: "temp_max_c", label: "Temp max", group: "Weather", unit: "°C", axisGroup: "air_temp" },
+  { key: "shortwave_radiation_sum_mj", label: "Solar radiation", group: "Weather", unit: "MJ/m2", axisGroup: "radiation" },
+  { key: "sunshine_duration_hours", label: "Sunshine", group: "Weather", unit: "h", axisGroup: "sunshine" },
+  { key: "cloud_cover_daylight_pct", label: "Cloud cover", group: "Weather", unit: "%", axisGroup: "sky_pct" },
+  { key: "precipitation_mm", label: "Rainfall", group: "Weather", unit: "mm", axisGroup: "rain" },
+  { key: "precipitation_hours", label: "Rain hours", group: "Weather", unit: "h", axisGroup: "sunshine" },
+  { key: "precipitation_probability_max_pct", label: "Rain chance", group: "Weather", unit: "%", axisGroup: "sky_pct" },
 ];
 
 export const METRIC_GROUPS: MetricGroup[] = [
   "Daily metrics",
   "Water parameters",
   "Plankton & Bacteria",
+  "Weather",
 ];
 
 const BY_KEY = new Map(METRIC_DEFS.map((m) => [m.key, m]));

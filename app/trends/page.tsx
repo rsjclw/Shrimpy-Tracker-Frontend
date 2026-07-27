@@ -1,6 +1,6 @@
 "use client";
 
-import { differenceInCalendarDays, format, parseISO } from "date-fns";
+import { addDays, differenceInCalendarDays, format, parseISO } from "date-fns";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -28,7 +28,16 @@ const PRESETS: { label: string; metrics: string[] }[] = [
   { label: "Clarity am vs pm", metrics: ["water_clarity_am", "water_clarity_pm"] },
   { label: "Growth", metrics: ["abw_g", "adg_g_per_day"] },
   { label: "Feed vs FCR", metrics: ["daily_feed_kg", "fcr"] },
+  { label: "Air temp min/avg/max", metrics: ["temp_min_c", "temp_mean_c", "temp_max_c"] },
+  { label: "Sun vs rain", metrics: ["shortwave_radiation_sum_mj", "precipitation_mm"] },
 ];
+
+/**
+ * Weather is cached 16 days ahead, so the trend window has to reach past today
+ * for an open cycle - otherwise the forecast half of the series is fetched but
+ * never asked for.
+ */
+const FORECAST_HORIZON_DAYS = 16;
 
 const SMOOTH_OPTIONS = [
   { value: 1, label: "Raw" },
@@ -42,6 +51,16 @@ const FARM_STORAGE_KEY = "trends-last-farm";
 
 function todayIso() {
   return format(new Date(), "yyyy-MM-dd");
+}
+
+function horizonIso() {
+  return format(addDays(new Date(), FORECAST_HORIZON_DAYS), "yyyy-MM-dd");
+}
+
+/** Last date worth asking for: a finished cycle stops, an open one looks ahead. */
+function trendEndDate(cycle: Cycle) {
+  if (cycle.actual_end_date) return cycle.actual_end_date;
+  return maxIso(cycle.planned_end_date ?? todayIso(), horizonIso());
 }
 
 function maxIso(a: string, b: string) {
@@ -96,7 +115,9 @@ function TrendsCompare() {
   const [smoothWindow, setSmoothWindow] = useState(1);
   const [normalize, setNormalize] = useState(false);
   const [connectNulls, setConnectNulls] = useState(true);
-  const [includePredicted, setIncludePredicted] = useState(false);
+  // On by default: the weather forecast is only ever future, so hiding it would
+  // make the Weather group look empty for the days that matter most.
+  const [includePredicted, setIncludePredicted] = useState(true);
   const [pickerOpen, setPickerOpen] = useState(true);
   const [cycleFilter, setCycleFilter] = useState("");
   const [openMetricGroups, setOpenMetricGroups] = useState<MetricGroup[]>([...METRIC_GROUPS]);
@@ -202,10 +223,7 @@ function TrendsCompare() {
         if (!cycle) throw new Error("Cycle went away");
 
         const from = cycle.start_date;
-        const to = maxIso(
-          from,
-          cycle.actual_end_date ?? cycle.planned_end_date ?? todayIso(),
-        );
+        const to = maxIso(from, trendEndDate(cycle));
 
         const result = await api.getCycleTrend(cycleId, metric, from, to);
         const start = parseISO(from);
@@ -600,7 +618,7 @@ function TrendsCompare() {
             checked={includePredicted}
             onChange={(e) => setIncludePredicted(e.target.checked)}
           />
-          <span className="text-slate-600">Include predicted</span>
+          <span className="text-slate-600">Include forecast</span>
         </label>
 
         <span className="ml-auto text-xs text-slate-400">

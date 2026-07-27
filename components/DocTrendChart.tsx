@@ -381,7 +381,10 @@ export function DocTrendChart({
               strokeOpacity={FUTURE_OPACITY}
             />
           </svg>
-          <span>solid = recorded, faded = predicted (dashed line marks where each cycle&apos;s prediction starts)</span>
+          <span>
+            solid = recorded, faded = predicted or forecast (dashed line marks where each
+            cycle&apos;s future starts)
+          </span>
         </div>
       ) : null}
 
