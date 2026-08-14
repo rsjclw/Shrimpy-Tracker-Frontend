@@ -190,6 +190,7 @@ export default function PondPage() {
     name: "",
     status: "active",
     target_doc: "",
+    actual_doc: "",
     maximum_daily_feed_capacity_kg: "",
     stable_carrying_capacity_kg_per_m3: "",
     final_carrying_capacity_kg_per_m3: "",
@@ -248,10 +249,15 @@ export default function PondPage() {
   async function saveEdit(e: React.FormEvent, id: string) {
     e.preventDefault();
     const cycleStartDate = cycles.find((c) => c.id === id)?.start_date ?? "";
+    const actualEndDate =
+      editForm.status === "active"
+        ? null
+        : docToPlannedDate(cycleStartDate, editForm.actual_doc) ?? todayIso();
     await api.updateCycle(id, {
       name: editForm.name.trim(),
       status: editForm.status,
       planned_end_date: docToPlannedDate(cycleStartDate, editForm.target_doc),
+      actual_end_date: actualEndDate,
       maximum_daily_feed_capacity_kg: nullableNumber(editForm.maximum_daily_feed_capacity_kg),
       stable_carrying_capacity_kg_per_m3: nullableNumber(editForm.stable_carrying_capacity_kg_per_m3),
       final_carrying_capacity_kg_per_m3: nullableNumber(editForm.final_carrying_capacity_kg_per_m3),
@@ -712,6 +718,22 @@ export default function PondPage() {
                           className="mt-1 w-full border rounded px-2 py-1"
                         />
                       </label>
+                      {editForm.status !== "active" ? (
+                        <label className="block">
+                          <span className="text-sm">Actual final DOC</span>
+                          <input
+                            required
+                            type="number"
+                            min="1"
+                            step="1"
+                            value={editForm.actual_doc}
+                            onChange={(e) =>
+                              setEditForm({ ...editForm, actual_doc: e.target.value })
+                            }
+                            className="mt-1 w-full border rounded px-2 py-1"
+                          />
+                        </label>
+                      ) : null}
                       <label className="block">
                         <span className="text-sm">Maximum daily feed capacity (kg)</span>
                         <input
@@ -854,10 +876,18 @@ export default function PondPage() {
                       <button
                         onClick={() => {
                           setEditingId(c.id);
+                          const fallbackEndDate =
+                            c.planned_end_date && c.planned_end_date < todayIso()
+                              ? c.planned_end_date
+                              : todayIso();
                           setEditForm({
                             name: c.name,
                             status: c.status,
                             target_doc: plannedDateToDoc(c.start_date, c.planned_end_date),
+                            actual_doc: plannedDateToDoc(
+                              c.start_date,
+                              c.actual_end_date ?? fallbackEndDate,
+                            ),
                             maximum_daily_feed_capacity_kg: c.maximum_daily_feed_capacity_kg ?? "",
                             stable_carrying_capacity_kg_per_m3:
                               c.stable_carrying_capacity_kg_per_m3 ?? "",

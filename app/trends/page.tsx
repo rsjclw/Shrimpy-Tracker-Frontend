@@ -62,11 +62,18 @@ function horizonIso() {
 /** Last date worth asking for: a finished cycle stops, an open one looks ahead. */
 function trendEndDate(cycle: Cycle) {
   if (cycle.actual_end_date) return cycle.actual_end_date;
+  if (cycle.status !== "active") {
+    return minIso(cycle.planned_end_date ?? todayIso(), todayIso());
+  }
   return maxIso(cycle.planned_end_date ?? todayIso(), horizonIso());
 }
 
 function maxIso(a: string, b: string) {
   return a >= b ? a : b;
+}
+
+function minIso(a: string, b: string) {
+  return a <= b ? a : b;
 }
 
 function seriesKey(cycleId: string, metric: string) {

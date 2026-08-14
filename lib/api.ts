@@ -436,7 +436,7 @@ export const api = {
     b: {
       name?: string;
       planned_end_date?: string;
-      actual_end_date?: string;
+      actual_end_date?: string | null;
       status?: string;
       maximum_daily_feed_capacity_kg?: number | null;
       stable_carrying_capacity_kg_per_m3?: number | null;
