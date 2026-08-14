@@ -46,6 +46,8 @@ const SMOOTH_OPTIONS = [
 ];
 
 type DocPoint = { doc: number; value: number; isFuture: boolean };
+type DocRange = { from: number; to: number };
+type DocRangeDraft = { from: string; to: string };
 
 const FARM_STORAGE_KEY = "trends-last-farm";
 
@@ -73,6 +75,12 @@ function seriesKey(cycleId: string, metric: string) {
 
 function parseList(value: string | null): string[] {
   return value ? value.split(",").filter(Boolean) : [];
+}
+
+function parseDocBound(value: string) {
+  if (value.trim() === "") return null;
+  const parsed = Number(value);
+  return Number.isInteger(parsed) && parsed >= 0 ? parsed : null;
 }
 
 export default function TrendsComparePage() {
@@ -111,7 +119,11 @@ function TrendsCompare() {
   const inFlight = useRef(new Set<string>());
 
   const [hidden, setHidden] = useState<Set<string>>(new Set());
-  const [docRange, setDocRange] = useState<{ from: number; to: number } | null>(null);
+  // Keep what the user is typing separate from the last valid chart range.
+  // This lets an input be temporarily blank (or otherwise invalid) without
+  // snapping it to a fallback value or sending a bad domain to Recharts.
+  const [docRange, setDocRange] = useState<DocRange | null>(null);
+  const [docRangeDraft, setDocRangeDraft] = useState<DocRangeDraft | null>(null);
   const [smoothWindow, setSmoothWindow] = useState(1);
   const [normalize, setNormalize] = useState(false);
   const [connectNulls, setConnectNulls] = useState(true);
@@ -323,8 +335,38 @@ function TrendsCompare() {
     return max;
   }, [series, hidden]);
 
-  const docFrom = Math.max(1, Math.min(docRange?.from ?? 1, Math.max(maxDoc, 1)));
-  const docTo = Math.max(docFrom, Math.min(docRange?.to ?? maxDoc, Math.max(maxDoc, 1)));
+  const docFrom = docRange?.from ?? (maxDoc > 0 ? 1 : 0);
+  const docTo = docRange?.to ?? Math.max(maxDoc, docFrom);
+  const docRangeInputs = docRangeDraft ?? {
+    from: String(docFrom),
+    to: String(docTo),
+  };
+  const draftFrom = parseDocBound(docRangeInputs.from);
+  const draftTo = parseDocBound(docRangeInputs.to);
+  const docRangeInvalid =
+    draftFrom == null ||
+    draftTo == null ||
+    draftFrom > draftTo ||
+    draftTo > maxDoc;
+  const sliderMax = Math.max(maxDoc, docTo, 1);
+
+  function updateDocRangeInputs(next: DocRangeDraft) {
+    setDocRangeDraft(next);
+    const from = parseDocBound(next.from);
+    const to = parseDocBound(next.to);
+    if (from == null || to == null || from > to || to > maxDoc) return;
+    setDocRange({ from, to });
+  }
+
+  function updateDocRange(from: number, to: number) {
+    setDocRangeDraft({ from: String(from), to: String(to) });
+    setDocRange({ from, to });
+  }
+
+  function resetDocRange() {
+    setDocRangeDraft(null);
+    setDocRange(null);
+  }
 
   const toggleCycle = useCallback((cycleId: string) => {
     setSelectedCycleIds((current) =>
@@ -546,38 +588,53 @@ function TrendsCompare() {
       </section>
 
       <section className="bg-white rounded-lg shadow p-3 flex flex-wrap items-center gap-x-5 gap-y-2 text-sm">
-        <label className="flex items-center gap-1.5">
+        <div className="flex flex-wrap items-center gap-1.5">
           <span className="text-slate-500">DOC</span>
           <input
             type="number"
-            min={1}
-            max={Math.max(maxDoc, 1)}
-            value={docFrom}
+            aria-label="First day of cycle"
+            aria-invalid={docRangeInvalid}
+            min={0}
+            max={maxDoc}
+            step={1}
+            value={docRangeInputs.from}
             onChange={(e) =>
-              setDocRange({ from: Number(e.target.value) || 1, to: docTo })
+              updateDocRangeInputs({ ...docRangeInputs, from: e.target.value })
             }
-            className="w-16 border rounded px-2 py-1"
+            className={`w-16 border rounded px-2 py-1 ${
+              docRangeInvalid ? "border-amber-400" : ""
+            }`}
           />
           <span className="text-slate-400">to</span>
           <input
             type="number"
-            min={1}
-            max={Math.max(maxDoc, 1)}
-            value={docTo}
+            aria-label="Last day of cycle"
+            aria-invalid={docRangeInvalid}
+            min={0}
+            max={maxDoc}
+            step={1}
+            value={docRangeInputs.to}
             onChange={(e) =>
-              setDocRange({ from: docFrom, to: Number(e.target.value) || maxDoc })
+              updateDocRangeInputs({ ...docRangeInputs, to: e.target.value })
             }
-            className="w-16 border rounded px-2 py-1"
+            className={`w-16 border rounded px-2 py-1 ${
+              docRangeInvalid ? "border-amber-400" : ""
+            }`}
           />
-          {docRange ? (
+          {docRange || docRangeDraft ? (
             <button
-              onClick={() => setDocRange(null)}
+              onClick={resetDocRange}
               className="text-xs text-primary hover:underline"
             >
               reset
             </button>
           ) : null}
-        </label>
+          {docRangeInvalid ? (
+            <span className="text-xs text-amber-600">
+              Chart remains at DOC {docFrom}-{docTo} until the range is valid.
+            </span>
+          ) : null}
+        </div>
 
         <label className="flex items-center gap-1.5">
           <span className="text-slate-500">Smoothing</span>
@@ -624,6 +681,39 @@ function TrendsCompare() {
         <span className="ml-auto text-xs text-slate-400">
           {loading ? "Loading..." : maxDoc ? `DOC 1-${maxDoc} with data` : "No data"}
         </span>
+
+        <div className="basis-full grid gap-x-5 gap-y-1 border-t border-slate-100 pt-2 sm:grid-cols-2">
+          <label className="flex items-center gap-2 text-xs text-slate-500">
+            <span className="w-9">Start</span>
+            <input
+              type="range"
+              aria-label="First day of cycle slider"
+              min={0}
+              max={Math.max(docTo, 0)}
+              step={1}
+              value={docFrom}
+              disabled={maxDoc === 0}
+              onChange={(e) => updateDocRange(Number(e.target.value), docTo)}
+              className="min-w-0 flex-1 accent-teal-600"
+            />
+            <span className="w-8 text-right tabular-nums text-slate-700">{docFrom}</span>
+          </label>
+          <label className="flex items-center gap-2 text-xs text-slate-500">
+            <span className="w-9">End</span>
+            <input
+              type="range"
+              aria-label="Last day of cycle slider"
+              min={docFrom}
+              max={sliderMax}
+              step={1}
+              value={docTo}
+              disabled={maxDoc === 0}
+              onChange={(e) => updateDocRange(docFrom, Number(e.target.value))}
+              className="min-w-0 flex-1 accent-teal-600"
+            />
+            <span className="w-8 text-right tabular-nums text-slate-700">{docTo}</span>
+          </label>
+        </div>
       </section>
 
       <DocTrendChart
