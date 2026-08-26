@@ -307,6 +307,7 @@ export default function CyclePage() {
       ) : (
       <>
       <FeedingTable
+        cycleId={cycleId}
         dailyLogId={currentDay.daily_log_id}
         feedings={currentDay.feedings}
         previousDay={previousDay}

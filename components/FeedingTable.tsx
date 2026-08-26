@@ -1,5 +1,6 @@
 "use client";
 
+import { addDays, format, parseISO } from "date-fns";
 import { useEffect, useMemo, useState } from "react";
 
 import {
@@ -23,6 +24,7 @@ type AdditiveOption = { name: string; dosage_gr_per_kg: string | null };
 type FeedEntryMode = "manual" | "index" | "previous-index" | "copy-previous";
 
 type Props = {
+  cycleId: string;
   dailyLogId: string | null;
   feedings: Feeding[];
   previousDay: DayView | null;
@@ -98,6 +100,28 @@ function feedTypeOptionToMix(opt: FeedType, percentage: number): FeedingFeedType
 
 function totalFeed(feedings: Pick<Feeding, "amount_kg">[]) {
   return feedings.reduce((sum, f) => sum + Number(f.amount_kg), 0);
+}
+
+const DEFAULT_RATIO_TIMES = ["06:00", "10:00", "14:00", "18:00"] as const;
+const DEFAULT_RATIO_PCT: [string, string, string, string] = ["25", "30", "30", "15"];
+
+function ratioSum(ratioPct: string[]) {
+  return ratioPct.reduce((sum, v) => sum + (Number(v) || 0), 0);
+}
+
+function validRatio(ratioPct: string[]) {
+  return Math.abs(ratioSum(ratioPct) - 100) < 0.1;
+}
+
+function deriveRatioFromDay(day: DayView | null): [string, string, string, string] | null {
+  if (!day || day.feedings.length !== DEFAULT_RATIO_TIMES.length) return null;
+  const sorted = [...day.feedings].sort((a, b) => a.feed_time.localeCompare(b.feed_time));
+  const total = totalFeed(sorted);
+  if (total <= 0) return null;
+  const rounded = sorted.map((f) => Math.round(((Number(f.amount_kg) / total) * 100) * 10) / 10);
+  const diff = Math.round((100 - rounded.reduce((sum, v) => sum + v, 0)) * 10) / 10;
+  rounded[rounded.length - 1] = Math.round((rounded[rounded.length - 1] + diff) * 10) / 10;
+  return rounded.map(String) as [string, string, string, string];
 }
 
 function feedingIndexFor(feedings: Pick<Feeding, "amount_kg">[], dayDoc: number, population: number | null) {
@@ -275,6 +299,48 @@ function FeedTypeMixEditor({
   );
 }
 
+function RatioEditor({
+  ratioPct,
+  onChange,
+  sourceLabel,
+}: {
+  ratioPct: [string, string, string, string];
+  onChange: (index: number, value: string) => void;
+  sourceLabel: string;
+}) {
+  const sum = ratioSum(ratioPct);
+  return (
+    <div className={fieldPanelClass}>
+      <div className="mb-2 flex items-center justify-between gap-3">
+        <div className="text-sm font-medium text-slate-700">Feed ratio</div>
+        <div className={`text-xs ${Math.abs(sum - 100) < 0.1 ? "text-slate-500" : "text-amber-600"}`}>
+          Total: {sum.toFixed(1)}%
+        </div>
+      </div>
+      <div className="grid grid-cols-4 gap-2">
+        {DEFAULT_RATIO_TIMES.map((time, i) => (
+          <label key={time} className="text-xs text-slate-600">
+            {time}
+            <div className="mt-1 flex items-center gap-1">
+              <input
+                type="number"
+                min="0"
+                max="100"
+                step="any"
+                value={ratioPct[i]}
+                onChange={(e) => onChange(i, e.target.value)}
+                className="w-full rounded border border-slate-300 px-2 py-1 text-xs"
+              />
+              <span className="shrink-0 text-slate-500">%</span>
+            </div>
+          </label>
+        ))}
+      </div>
+      <div className="mt-2 text-xs text-slate-500">{sourceLabel}</div>
+    </div>
+  );
+}
+
 function FeedingPreview({
   rows,
   feedingIndex,
@@ -312,6 +378,7 @@ function FeedingPreview({
 }
 
 export function FeedingTable({
+  cycleId,
   dailyLogId,
   feedings,
   previousDay,
@@ -331,10 +398,55 @@ export function FeedingTable({
   const [editDraft, setEditDraft] = useState<FeedingDraft>(emptyDraft());
   const [indexDraft, setIndexDraft] = useState("");
   const [entryMode, setEntryMode] = useState<FeedEntryMode>("manual");
+  const [ratioPct, setRatioPct] = useState<[string, string, string, string]>(DEFAULT_RATIO_PCT);
+  const [ratioTouched, setRatioTouched] = useState(false);
+  const [ratioSourceDay, setRatioSourceDay] = useState<DayView | null>(null);
+  const [ratioSourceLoading, setRatioSourceLoading] = useState(false);
 
   useEffect(() => {
     if (!adding) setDraft(emptyDraft(defaultFeedTypes));
   }, [adding, defaultFeedTypes]);
+
+  useEffect(() => {
+    if (!adding) return;
+    if (previousDay && previousDay.feedings.length > 0) {
+      setRatioSourceDay(previousDay);
+      return;
+    }
+    if (!previousDay) {
+      setRatioSourceDay(null);
+      return;
+    }
+    let cancelled = false;
+    async function walkBack() {
+      setRatioSourceLoading(true);
+      let cursor = previousDay!;
+      while (cursor.metrics.doc > 1) {
+        const priorDate = format(addDays(parseISO(cursor.date), -1), "yyyy-MM-dd");
+        const candidate = await api.getCycleDay(cycleId, priorDate).catch(() => null);
+        if (cancelled || !candidate) break;
+        if (candidate.feedings.length > 0) {
+          setRatioSourceDay(candidate);
+          setRatioSourceLoading(false);
+          return;
+        }
+        cursor = candidate;
+      }
+      if (!cancelled) {
+        setRatioSourceDay(null);
+        setRatioSourceLoading(false);
+      }
+    }
+    walkBack();
+    return () => {
+      cancelled = true;
+    };
+  }, [adding, previousDay, cycleId]);
+
+  useEffect(() => {
+    if (ratioTouched) return;
+    setRatioPct(deriveRatioFromDay(ratioSourceDay) ?? DEFAULT_RATIO_PCT);
+  }, [ratioSourceDay, ratioTouched]);
 
   const feedingIndex = feedingIndexFor(feedings, doc, estimatedPopulation);
   const previousFeedingIndex = previousDay
@@ -373,13 +485,9 @@ export function FeedingTable({
   function roundedSessionsFromIndex(value: string): PreviewFeeding[] | null {
     const dailyFeedKg = dailyFeedFromIndex(value);
     if (dailyFeedKg === null) return null;
-    return [
-      { feed_time: "06:00", amount_kg: roundFeedKg(dailyFeedKg * 0.25) },
-      { feed_time: "10:00", amount_kg: roundFeedKg(dailyFeedKg * 0.3) },
-      { feed_time: "14:00", amount_kg: roundFeedKg(dailyFeedKg * 0.3) },
-      { feed_time: "18:00", amount_kg: roundFeedKg(dailyFeedKg * 0.15) },
-    ].map((session) => ({
-      ...session,
+    return DEFAULT_RATIO_TIMES.map((feed_time, i) => ({
+      feed_time,
+      amount_kg: roundFeedKg(dailyFeedKg * ((Number(ratioPct[i]) || 0) / 100)),
       additives: cloneAdditives(draft.additives),
       feed_types: cloneFeedTypes(draft.feed_types),
     }));
@@ -395,6 +503,21 @@ export function FeedingTable({
     const index = Number(value);
     return maximumFeedingIndex !== null && Number.isFinite(index) && index > maximumFeedingIndex;
   }
+
+  function updateRatio(index: number, value: string) {
+    setRatioTouched(true);
+    setRatioPct((prev) => {
+      const next = [...prev] as [string, string, string, string];
+      next[index] = value;
+      return next;
+    });
+  }
+
+  const ratioSourceLabel = ratioSourceLoading
+    ? "Looking up the most recent feeding ratio..."
+    : ratioSourceDay
+      ? `Default from DOC ${ratioSourceDay.metrics.doc} (${ratioSourceDay.date}).`
+      : "Default ratio - no previous feeding schedule found back to DOC 1.";
 
   const previewRows = useMemo<PreviewFeeding[]>(() => {
     if (entryMode === "index") {
@@ -412,7 +535,7 @@ export function FeedingTable({
       }));
     }
     return [];
-  }, [draft, entryMode, indexDraft, previousDay, previousFeedingIndex]);
+  }, [draft, entryMode, indexDraft, previousDay, previousFeedingIndex, ratioPct]);
 
   const previewIndex =
     entryMode === "copy-previous"
@@ -424,6 +547,9 @@ export function FeedingTable({
     setIndexDraft("");
     setEntryMode("manual");
     setDraft(emptyDraft(defaultFeedTypes));
+    setRatioTouched(false);
+    setRatioPct(DEFAULT_RATIO_PCT);
+    setRatioSourceDay(null);
   }
 
   async function add(e: React.FormEvent) {
@@ -449,6 +575,10 @@ export function FeedingTable({
 
     if (entryMode !== "copy-previous" && !validFeedTypeMix(draft.feed_types)) {
       alert("Feed type percentages must total 100%.");
+      return;
+    }
+    if ((entryMode === "index" || entryMode === "previous-index") && !validRatio(ratioPct)) {
+      alert("Feeding ratio percentages must total 100%.");
       return;
     }
     if (previewRows.length === 0) return;
@@ -575,6 +705,9 @@ export function FeedingTable({
                 setIndexDraft("");
                 setEntryMode("manual");
                 setDraft(emptyDraft(defaultFeedTypes));
+                setRatioTouched(false);
+                setRatioPct(DEFAULT_RATIO_PCT);
+                setRatioSourceDay(null);
               }}
               className="rounded bg-primary px-3 py-1 text-sm text-white"
             >
@@ -813,6 +946,10 @@ export function FeedingTable({
             </div>
           )}
 
+          {(entryMode === "index" || entryMode === "previous-index") && (
+            <RatioEditor ratioPct={ratioPct} onChange={updateRatio} sourceLabel={ratioSourceLabel} />
+          )}
+
           {entryMode !== "copy-previous" && (
             <>
               <AdditiveEditor
@@ -836,7 +973,10 @@ export function FeedingTable({
 
           <div className="flex gap-2">
             <button
-              disabled={entryMode !== "manual" && previewRows.length === 0}
+              disabled={
+                (entryMode !== "manual" && previewRows.length === 0) ||
+                ((entryMode === "index" || entryMode === "previous-index") && !validRatio(ratioPct))
+              }
               className="rounded bg-primary px-4 py-2 text-sm text-white disabled:opacity-50"
             >
               Save
