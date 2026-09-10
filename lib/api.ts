@@ -84,6 +84,7 @@ export type Pond = {
   grid_id: string;
   name: string;
   area_m2: string | null;
+  default_feed_time: string | null;
 };
 export type PredictionConfig = {
   cycle: {
@@ -465,7 +466,7 @@ export const api = {
     request<EnvironmentRefresh>(`/grids/${gridId}/environment/refresh`, { method: "POST" }),
   listGridPonds: (gridId: string) => request<Pond[]>(`/grids/${gridId}/ponds`),
 
-  updatePond: (id: string, b: { name: string; area_m2?: number }) =>
+  updatePond: (id: string, b: { name: string; area_m2?: number; default_feed_time?: string }) =>
     request<Pond>(`/ponds/${id}`, { method: "PUT", body: JSON.stringify(b) }),
   deletePond: (id: string) => request<void>(`/ponds/${id}`, { method: "DELETE" }),
 
@@ -473,7 +474,7 @@ export const api = {
     request<Pond[]>(
       `/ponds${gridId ? `?grid_id=${gridId}` : farmId ? `?farm_id=${farmId}` : ""}`,
     ),
-  createPond: (b: { grid_id: string; name: string; area_m2?: number }) =>
+  createPond: (b: { grid_id: string; name: string; area_m2?: number; default_feed_time?: string }) =>
     request<Pond>("/ponds", { method: "POST", body: JSON.stringify(b) }),
   getPond: (id: string) => request<Pond>(`/ponds/${id}`),
   listPondCycles: (pondId: string) => request<Cycle[]>(`/ponds/${pondId}/cycles`),

@@ -22,9 +22,11 @@ export default function GridPage() {
   const [showForm, setShowForm] = useState(false);
   const [name, setName] = useState("");
   const [area, setArea] = useState("");
+  const [feedTime, setFeedTime] = useState("06:00");
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editName, setEditName] = useState("");
   const [editArea, setEditArea] = useState("");
+  const [editFeedTime, setEditFeedTime] = useState("06:00");
 
   useEffect(() => {
     reload();
@@ -44,9 +46,11 @@ export default function GridPage() {
       grid_id: gridId,
       name: name.trim(),
       ...(area ? { area_m2: Number(area) } : {}),
+      default_feed_time: feedTime || "06:00",
     });
     setName("");
     setArea("");
+    setFeedTime("06:00");
     setShowForm(false);
     reload();
   }
@@ -57,6 +61,7 @@ export default function GridPage() {
     await api.updatePond(id, {
       name: editName.trim(),
       ...(editArea ? { area_m2: Number(editArea) } : {}),
+      default_feed_time: editFeedTime || "06:00",
     });
     setEditingId(null);
     reload();
@@ -107,6 +112,15 @@ export default function GridPage() {
               step="any"
               className="sm:w-40 border rounded px-3 py-2"
             />
+            <label className="text-sm flex items-center gap-2 sm:w-40">
+              Feed time
+              <input
+                value={feedTime}
+                onChange={(e) => setFeedTime(e.target.value)}
+                type="time"
+                className="flex-1 border rounded px-3 py-2"
+              />
+            </label>
             <button className="bg-primary text-white px-4 rounded py-2">Add</button>
             <button type="button" onClick={() => setShowForm(false)} className="border px-3 rounded py-2">
               Cancel
@@ -137,6 +151,15 @@ export default function GridPage() {
                       step="any"
                       className="w-full border rounded px-2 py-1"
                     />
+                    <label className="text-sm flex items-center gap-2">
+                      Feed time
+                      <input
+                        value={editFeedTime}
+                        onChange={(e) => setEditFeedTime(e.target.value)}
+                        type="time"
+                        className="flex-1 border rounded px-2 py-1"
+                      />
+                    </label>
                     <div className="flex gap-2">
                       <button className="text-xs bg-primary text-white px-3 py-1 rounded">
                         Save
@@ -157,6 +180,9 @@ export default function GridPage() {
                       {p.area_m2 && (
                         <div className="text-sm text-slate-500">{p.area_m2} m2</div>
                       )}
+                      <div className="text-sm text-slate-500">
+                        Feeds at {(p.default_feed_time ?? "06:00:00").slice(0, 5)}
+                      </div>
                     </Link>
                     {canManage(role) && (
                     <div className="flex gap-3 mt-2">
@@ -165,6 +191,7 @@ export default function GridPage() {
                           setEditingId(p.id);
                           setEditName(p.name);
                           setEditArea(p.area_m2 ?? "");
+                          setEditFeedTime((p.default_feed_time ?? "06:00:00").slice(0, 5));
                           setShowForm(false);
                         }}
                         className="text-xs text-primary hover:underline"
