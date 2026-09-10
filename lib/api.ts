@@ -1,26 +1,44 @@
 "use client";
 
-import { getSupabase } from "./supabase";
+import { clearSession, getToken, type AuthUser } from "./auth";
+
+export type { AuthUser } from "./auth";
 
 const BASE = process.env.NEXT_PUBLIC_API_URL ?? "/backend";
 
-async function authHeader(): Promise<HeadersInit> {
-  const sb = getSupabase();
-  const { data } = await sb.auth.getSession();
-  const token = data.session?.access_token;
+function authHeader(): HeadersInit {
+  const token = getToken();
   return token ? { Authorization: `Bearer ${token}` } : {};
+}
+
+/** Pull the backend's `{detail}` out of an error body when there is one. */
+function errorMessage(status: number, text: string) {
+  try {
+    const parsed = JSON.parse(text);
+    if (parsed && typeof parsed.detail === "string") return parsed.detail;
+  } catch {
+    // not JSON
+  }
+  return `${status}: ${text}`;
 }
 
 async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   const headers: HeadersInit = {
     "Content-Type": "application/json",
-    ...(await authHeader()),
+    ...authHeader(),
     ...(init.headers ?? {}),
   };
   const res = await fetch(`${BASE}${path}`, { ...init, headers });
   if (!res.ok) {
     const text = await res.text().catch(() => res.statusText);
-    throw new Error(`${res.status}: ${text}`);
+    if (res.status === 401 && path !== "/auth/login") {
+      // Token missing, expired or revoked: drop it and send the user back to sign in.
+      clearSession();
+      if (typeof window !== "undefined" && window.location.pathname !== "/login") {
+        window.location.assign("/login");
+      }
+    }
+    throw new Error(errorMessage(res.status, text));
   }
   if (res.status === 204) return undefined as T;
   return res.json();
@@ -42,7 +60,12 @@ export type RegisteredUser = {
   created_at: string;
   last_sign_in_at: string | null;
   is_admin: boolean;
+  is_active: boolean;
+  must_change_password: boolean;
 };
+export type LoginResponse = { access_token: string; token_type: "bearer"; user: AuthUser };
+export type CreatedUser = { user: RegisteredUser; temporary_password: string | null };
+export type PasswordReset = { temporary_password: string | null };
 export type Grid = {
   id: string;
   farm_id: string;
@@ -375,6 +398,33 @@ export type PredictionJob = {
 
 // ---- Endpoints ----
 export const api = {
+  login: (email: string, password: string) =>
+    request<LoginResponse>("/auth/login", {
+      method: "POST",
+      body: JSON.stringify({ email, password }),
+    }),
+  me: () => request<AuthUser>("/auth/me"),
+  changePassword: (current_password: string, new_password: string) =>
+    request<AuthUser>("/auth/change-password", {
+      method: "POST",
+      body: JSON.stringify({ current_password, new_password }),
+    }),
+  createUser: (email: string, password?: string) =>
+    request<CreatedUser>("/auth/users", {
+      method: "POST",
+      body: JSON.stringify(password ? { email, password } : { email }),
+    }),
+  resetUserPassword: (id: string, password?: string) =>
+    request<PasswordReset>(`/auth/users/${id}/reset-password`, {
+      method: "POST",
+      body: JSON.stringify(password ? { password } : {}),
+    }),
+  setUserActive: (id: string, is_active: boolean) =>
+    request<RegisteredUser>(`/auth/users/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify({ is_active }),
+    }),
+
   listFarms: () => request<Farm[]>("/farms"),
   getFarm: (id: string) => request<Farm>(`/farms/${id}`),
   createFarm: (b: { name: string }) =>

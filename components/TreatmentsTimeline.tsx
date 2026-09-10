@@ -3,7 +3,7 @@
 import { useState } from "react";
 
 import { api, type Treatment } from "@/lib/api";
-import { getSupabase } from "@/lib/supabase";
+import { getStoredUser } from "@/lib/auth";
 
 type Props = {
   dailyLogId: string | null;
@@ -31,9 +31,8 @@ function treatmentToDraft(t: Treatment): TreatmentDraft {
   };
 }
 
-async function currentUserEmail(): Promise<string | undefined> {
-  const { data } = await getSupabase().auth.getSession();
-  return data.session?.user.email ?? undefined;
+function currentUserEmail(): string | undefined {
+  return getStoredUser()?.email ?? undefined;
 }
 
 function TreatmentForm({
@@ -98,7 +97,7 @@ export function TreatmentsTimeline({ dailyLogId, treatments, canAdd, canManage, 
   async function add(e: React.FormEvent) {
     e.preventDefault();
     if (!dailyLogId) return;
-    const worker = await currentUserEmail();
+    const worker = currentUserEmail();
     await api.createTreatment(dailyLogId, {
       treatment_time: draft.treatment_time,
       action: draft.action.trim(),
@@ -114,7 +113,7 @@ export function TreatmentsTimeline({ dailyLogId, treatments, canAdd, canManage, 
   async function saveEdit(e: React.FormEvent) {
     e.preventDefault();
     if (!editingId) return;
-    const worker = await currentUserEmail();
+    const worker = currentUserEmail();
     await api.updateTreatment(editingId, {
       treatment_time: editDraft.treatment_time,
       action: editDraft.action.trim(),

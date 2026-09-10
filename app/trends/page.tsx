@@ -7,8 +7,8 @@ import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "rea
 
 import { DocTrendChart, type ChartSeries } from "@/components/DocTrendChart";
 import { api, type Cycle, type Farm, type Grid, type Pond } from "@/lib/api";
+import { getToken } from "@/lib/auth";
 import { METRIC_DEFS, METRIC_GROUPS, metricDef, type MetricGroup } from "@/lib/metrics";
-import { getSupabase } from "@/lib/supabase";
 
 const CYCLE_COLORS = [
   "#0ea5a4",
@@ -142,16 +142,14 @@ function TrendsCompare() {
   const [openMetricGroups, setOpenMetricGroups] = useState<MetricGroup[]>([...METRIC_GROUPS]);
 
   useEffect(() => {
-    getSupabase()
-      .auth.getSession()
-      .then(async ({ data }) => {
-        if (!data.session) {
-          router.replace("/login");
-          return;
-        }
-        setFarms(await api.listFarms());
-        setAuthChecked(true);
-      });
+    if (!getToken()) {
+      router.replace("/login");
+      return;
+    }
+    api.listFarms().then((farms) => {
+      setFarms(farms);
+      setAuthChecked(true);
+    });
   }, [router]);
 
   // Everything the account can see is loaded once, unfiltered. The farm

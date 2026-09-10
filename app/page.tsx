@@ -11,7 +11,7 @@ import { FeedTypesSection } from "@/components/farm/FeedTypesSection";
 import { GridsSection } from "@/components/farm/GridsSection";
 import { MembersSection } from "@/components/farm/MembersSection";
 import { RegisteredUsersSection } from "@/components/farm/RegisteredUsersSection";
-import { getSupabase } from "@/lib/supabase";
+import { clearSession, getStoredUser, getToken } from "@/lib/auth";
 
 const sectionStorageKey = "farm-page-open-sections";
 const defaultOpenSections = {
@@ -63,14 +63,15 @@ export default function Home() {
   }, [openSections, openSectionsLoaded]);
 
   useEffect(() => {
-    const sb = getSupabase();
-    sb.auth.getSession().then(({ data }) => {
-      if (!data.session) {
-        router.replace("/login");
-        return;
-      }
-      loadFarms();
-    });
+    if (!getToken()) {
+      router.replace("/login");
+      return;
+    }
+    if (getStoredUser()?.must_change_password) {
+      router.replace("/change-password");
+      return;
+    }
+    loadFarms();
   }, [router]);
 
   async function loadFarms() {
@@ -86,21 +87,27 @@ export default function Home() {
     if (authChecked && selectedFarmId) reload();
   }, [authChecked, selectedFarmId]);
 
+  async function loadRegisteredUsers() {
+    try {
+      setRegisteredUsers(await api.listRegisteredUsers());
+      setRegisteredUsersError(null);
+    } catch (error) {
+      setRegisteredUsers([]);
+      setRegisteredUsersError(error instanceof Error ? error.message : String(error));
+    }
+  }
+
   async function reload() {
     if (!selectedFarmId) return;
     const selected = farms.find((farm) => farm.id === selectedFarmId);
-    const [g, p, ft, a, blindTemplates, members, usersResult] = await Promise.all([
+    const [g, p, ft, a, blindTemplates, members] = await Promise.all([
       api.listGrids(selectedFarmId),
       api.listPonds(undefined, selectedFarmId),
       api.listFeedTypes(selectedFarmId),
       api.listAdditives(selectedFarmId),
       api.listBlindFeedingTemplates(selectedFarmId),
       selected?.role === "admin" ? api.listFarmMembers(selectedFarmId) : Promise.resolve([]),
-      selected?.role === "admin"
-        ? api.listRegisteredUsers()
-            .then((users) => ({ users, error: null as string | null }))
-            .catch((error) => ({ users: [] as RegisteredUser[], error: error.message }))
-        : Promise.resolve({ users: [] as RegisteredUser[], error: null as string | null }),
+      selected?.role === "admin" ? loadRegisteredUsers() : Promise.resolve(),
     ]);
     setGrids(g);
     setPonds(p);
@@ -108,8 +115,6 @@ export default function Home() {
     setAdditives(a);
     setBlindFeedingTemplates(blindTemplates);
     setFarmMembers(members);
-    setRegisteredUsers(usersResult.users);
-    setRegisteredUsersError(usersResult.error);
   }
 
   async function createFarm(e: React.FormEvent) {
@@ -138,8 +143,8 @@ export default function Home() {
     loadFarms();
   }
 
-  async function signOut() {
-    await getSupabase().auth.signOut();
+  function signOut() {
+    clearSession();
     router.replace("/login");
   }
 
@@ -162,6 +167,9 @@ export default function Home() {
         <div className="flex items-center gap-4">
           <Link href="/trends" className="text-sm text-primary hover:underline">
             Trends
+          </Link>
+          <Link href="/change-password" className="text-sm text-slate-600 hover:underline">
+            Change password
           </Link>
           <button onClick={signOut} className="text-sm text-slate-600 hover:underline">
             Sign out
@@ -302,6 +310,7 @@ export default function Home() {
               error={registeredUsersError}
               open={openSections.registeredUsers}
               onToggle={() => toggleSection("registeredUsers")}
+              onChanged={loadRegisteredUsers}
             />
           )}
         </>
