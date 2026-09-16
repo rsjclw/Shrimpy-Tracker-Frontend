@@ -314,6 +314,7 @@ export default function CyclePage() {
         additives={additives}
         feedTypes={feedTypes}
         defaultFeedTypes={currentDay.default_feed_types}
+        defaultFeedTime={pond?.default_feed_time ?? null}
         doc={currentDay.metrics.doc}
         estimatedPopulation={currentDay.metrics.estimated_population}
         feedingIndexIncrement={Number(cycle.feeding_index_increment)}

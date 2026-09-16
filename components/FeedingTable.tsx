@@ -31,6 +31,7 @@ type Props = {
   additives: AdditiveOption[];
   feedTypes: FeedType[];
   defaultFeedTypes: FeedingFeedType[];
+  defaultFeedTime?: string | null;
   doc: number;
   estimatedPopulation: number | null;
   feedingIndexIncrement: number;
@@ -67,9 +68,9 @@ function cloneFeedTypes(feedTypes: FeedingFeedType[]): FeedingFeedType[] {
   return feedTypes.map((f) => ({ ...f }));
 }
 
-function emptyDraft(feedTypes: FeedingFeedType[] = []): FeedingDraft {
+function emptyDraft(feedTypes: FeedingFeedType[] = [], defaultFeedTime?: string | null): FeedingDraft {
   return {
-    feed_time: "08:00",
+    feed_time: defaultFeedTime?.slice(0, 5) || "08:00",
     amount_kg: "",
     duration_min: "",
     additives: [],
@@ -385,6 +386,7 @@ export function FeedingTable({
   additives,
   feedTypes,
   defaultFeedTypes,
+  defaultFeedTime,
   doc,
   estimatedPopulation,
   maximumFeedingIndex,
@@ -394,7 +396,7 @@ export function FeedingTable({
 }: Props) {
   const [adding, setAdding] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
-  const [draft, setDraft] = useState<FeedingDraft>(emptyDraft(defaultFeedTypes));
+  const [draft, setDraft] = useState<FeedingDraft>(emptyDraft(defaultFeedTypes, defaultFeedTime));
   const [editDraft, setEditDraft] = useState<FeedingDraft>(emptyDraft());
   const [indexDraft, setIndexDraft] = useState("");
   const [entryMode, setEntryMode] = useState<FeedEntryMode>("manual");
@@ -404,8 +406,8 @@ export function FeedingTable({
   const [ratioSourceLoading, setRatioSourceLoading] = useState(false);
 
   useEffect(() => {
-    if (!adding) setDraft(emptyDraft(defaultFeedTypes));
-  }, [adding, defaultFeedTypes]);
+    if (!adding) setDraft(emptyDraft(defaultFeedTypes, defaultFeedTime));
+  }, [adding, defaultFeedTypes, defaultFeedTime]);
 
   useEffect(() => {
     if (!adding) return;
@@ -546,7 +548,7 @@ export function FeedingTable({
     setAdding(false);
     setIndexDraft("");
     setEntryMode("manual");
-    setDraft(emptyDraft(defaultFeedTypes));
+    setDraft(emptyDraft(defaultFeedTypes, defaultFeedTime));
     setRatioTouched(false);
     setRatioPct(DEFAULT_RATIO_PCT);
     setRatioSourceDay(null);
@@ -704,7 +706,7 @@ export function FeedingTable({
                 setEditingId(null);
                 setIndexDraft("");
                 setEntryMode("manual");
-                setDraft(emptyDraft(defaultFeedTypes));
+                setDraft(emptyDraft(defaultFeedTypes, defaultFeedTime));
                 setRatioTouched(false);
                 setRatioPct(DEFAULT_RATIO_PCT);
                 setRatioSourceDay(null);
