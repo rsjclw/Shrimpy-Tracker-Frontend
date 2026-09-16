@@ -103,8 +103,20 @@ function totalFeed(feedings: Pick<Feeding, "amount_kg">[]) {
   return feedings.reduce((sum, f) => sum + Number(f.amount_kg), 0);
 }
 
-const DEFAULT_RATIO_TIMES = ["06:00", "10:00", "14:00", "18:00"] as const;
+const SESSION_OFFSET_HOURS = [0, 4, 8, 12] as const;
 const DEFAULT_RATIO_PCT: [string, string, string, string] = ["25", "30", "30", "15"];
+
+function sessionTimesFor(defaultFeedTime?: string | null): [string, string, string, string] {
+  const anchor = defaultFeedTime?.slice(0, 5) || "08:00";
+  const [h, m] = anchor.split(":").map(Number);
+  const anchorMinutes = (h || 0) * 60 + (m || 0);
+  return SESSION_OFFSET_HOURS.map((offset) => {
+    const totalMinutes = (anchorMinutes + offset * 60) % (24 * 60);
+    const hh = Math.floor(totalMinutes / 60);
+    const mm = totalMinutes % 60;
+    return `${String(hh).padStart(2, "0")}:${String(mm).padStart(2, "0")}`;
+  }) as [string, string, string, string];
+}
 
 function ratioSum(ratioPct: string[]) {
   return ratioPct.reduce((sum, v) => sum + (Number(v) || 0), 0);
@@ -115,7 +127,7 @@ function validRatio(ratioPct: string[]) {
 }
 
 function deriveRatioFromDay(day: DayView | null): [string, string, string, string] | null {
-  if (!day || day.feedings.length !== DEFAULT_RATIO_TIMES.length) return null;
+  if (!day || day.feedings.length !== SESSION_OFFSET_HOURS.length) return null;
   const sorted = [...day.feedings].sort((a, b) => a.feed_time.localeCompare(b.feed_time));
   const total = totalFeed(sorted);
   if (total <= 0) return null;
@@ -302,10 +314,12 @@ function FeedTypeMixEditor({
 
 function RatioEditor({
   ratioPct,
+  times,
   onChange,
   sourceLabel,
 }: {
   ratioPct: [string, string, string, string];
+  times: [string, string, string, string];
   onChange: (index: number, value: string) => void;
   sourceLabel: string;
 }) {
@@ -319,7 +333,7 @@ function RatioEditor({
         </div>
       </div>
       <div className="grid grid-cols-4 gap-2">
-        {DEFAULT_RATIO_TIMES.map((time, i) => (
+        {times.map((time, i) => (
           <label key={time} className="text-xs text-slate-600">
             {time}
             <div className="mt-1 flex items-center gap-1">
@@ -484,10 +498,12 @@ export function FeedingTable({
     return index * doc * (estimatedPopulation / 100000);
   }
 
+  const sessionTimes = useMemo(() => sessionTimesFor(defaultFeedTime), [defaultFeedTime]);
+
   function roundedSessionsFromIndex(value: string): PreviewFeeding[] | null {
     const dailyFeedKg = dailyFeedFromIndex(value);
     if (dailyFeedKg === null) return null;
-    return DEFAULT_RATIO_TIMES.map((feed_time, i) => ({
+    return sessionTimes.map((feed_time, i) => ({
       feed_time,
       amount_kg: roundFeedKg(dailyFeedKg * ((Number(ratioPct[i]) || 0) / 100)),
       additives: cloneAdditives(draft.additives),
@@ -537,7 +553,7 @@ export function FeedingTable({
       }));
     }
     return [];
-  }, [draft, entryMode, indexDraft, previousDay, previousFeedingIndex, ratioPct]);
+  }, [draft, entryMode, indexDraft, previousDay, previousFeedingIndex, ratioPct, sessionTimes]);
 
   const previewIndex =
     entryMode === "copy-previous"
@@ -949,7 +965,7 @@ export function FeedingTable({
           )}
 
           {(entryMode === "index" || entryMode === "previous-index") && (
-            <RatioEditor ratioPct={ratioPct} onChange={updateRatio} sourceLabel={ratioSourceLabel} />
+            <RatioEditor ratioPct={ratioPct} times={sessionTimes} onChange={updateRatio} sourceLabel={ratioSourceLabel} />
           )}
 
           {entryMode !== "copy-previous" && (
