@@ -106,7 +106,7 @@ export function PondCard({
             </div>
           ) : null}
         </button>
-        {expanded ? (
+        {expanded && perms.canManage ? (
           <Link
             href={`/ponds/${pond.id}/settings`}
             aria-label={`${pond.name} settings`}

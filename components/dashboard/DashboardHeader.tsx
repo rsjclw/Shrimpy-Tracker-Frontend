@@ -5,7 +5,7 @@ import { useEffect, useRef, useState } from "react";
 
 import { Icon } from "@/components/ui/Icon";
 import { api, type Farm, type Grid } from "@/lib/api";
-import { ROLE_LABEL } from "@/lib/roles";
+import { ROLE_LABEL, canManage as canManageRole } from "@/lib/roles";
 
 export type FarmStats = Record<string, { active: number; ponds: number }>;
 
@@ -140,9 +140,11 @@ export function DashboardHeader({
                           {stats ? `${stats.active} active pond${stats.active === 1 ? "" : "s"} · ${stats.ponds} total` : "…"}
                         </span>
                       </button>
-                      <Link href={`/farms/${f.id}/settings`} aria-label={`Farm settings for ${f.name}`} className="flex h-11 w-10 shrink-0 items-center justify-center text-tx-faint hover:text-tx">
-                        <Icon name="gear" size={17} strokeWidth={1.8} />
-                      </Link>
+                      {canManageRole(f.role) ? (
+                        <Link href={`/farms/${f.id}/settings`} aria-label={`Farm settings for ${f.name}`} className="flex h-11 w-10 shrink-0 items-center justify-center text-tx-faint hover:text-tx">
+                          <Icon name="gear" size={17} strokeWidth={1.8} />
+                        </Link>
+                      ) : null}
                       <button
                         type="button"
                         onClick={() => onTogglePin(f.id)}

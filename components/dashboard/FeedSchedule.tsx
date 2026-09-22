@@ -164,7 +164,8 @@ export function FeedSchedule({
             {total ? `${fmtNum(total, 1)} kg/day${Number.isFinite(fi) ? ` · FI ${fi.toFixed(3)}` : ""}` : ""}
           </div>
         </div>
-        {!editing && perms.canAdd && feedings.length > 0 ? (
+        {/* Operators may only add to today's or a future schedule; past days are maintainer-only. */}
+        {!editing && (perms.canManage || (perms.canAdd && kind !== "past")) && feedings.length > 0 ? (
           <button type="button" onClick={() => begin(existingRows())} aria-label="Edit feed schedule" className="flex items-center gap-1 rounded-md bg-ink-850 px-2 py-1 text-accent">
             <Icon name="pencil" size={12} />
             <span className="text-[11px] font-semibold">Edit</span>

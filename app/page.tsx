@@ -321,9 +321,11 @@ export default function Dashboard() {
                       <span className="font-mono text-[13px] font-semibold text-tx-muted">{last?.actual_end_date ? niceDate(last.actual_end_date) : "—"}</span>
                       <span className="text-[10px] uppercase tracking-[0.06em] text-tx-faint">Since</span>
                     </div>
-                    <Link href={`/ponds/${p.id}/settings`} aria-label={`Open pond settings for ${p.name}`} className="-mr-1.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-[10px] text-tx-muted hover:text-tx-strong">
-                      <Icon name="gear" size={18} strokeWidth={1.8} />
-                    </Link>
+                    {manage ? (
+                      <Link href={`/ponds/${p.id}/settings`} aria-label={`Open pond settings for ${p.name}`} className="-mr-1.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-[10px] text-tx-muted hover:text-tx-strong">
+                        <Icon name="gear" size={18} strokeWidth={1.8} />
+                      </Link>
+                    ) : null}
                   </div>
                 );
               })}

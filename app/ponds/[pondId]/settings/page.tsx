@@ -134,6 +134,14 @@ export default function PondSettingsPage() {
 
   const role = farm?.role ?? null;
   const readOnly = !canManage(role);
+  if (readOnly) {
+    return (
+      <PageColumn>
+        <PageHeader eyebrow={`${farm?.name ?? "—"} · ${pond.name}`} title="Pond settings" backHref={farm ? `/?farm=${farm.id}` : "/"} />
+        <Banner tone="warn">Only maintainers can open pond settings.</Banner>
+      </PageColumn>
+    );
+  }
   const activeCycle = currentCycle(cycles, pond.id);
 
   const generalDirty = !generalEqual(draftGeneral, savedGeneral);

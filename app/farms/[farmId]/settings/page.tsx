@@ -91,6 +91,8 @@ export default function FarmSettingsPage({ params }: { params: { farmId: string 
         <Banner tone="bad">{loadError}</Banner>
       ) : !farm ? (
         <Banner tone="bad">Farm not found.</Banner>
+      ) : !manage ? (
+        <Banner tone="warn">Only maintainers can open farm settings.</Banner>
       ) : (
         <>
           <FeedTypesSection
