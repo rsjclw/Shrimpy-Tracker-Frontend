@@ -3,6 +3,8 @@
 // Storage-only session helpers. No fetch calls live here so that api.ts can
 // import this module without creating a cycle.
 
+import { clearPersisted } from "./cache";
+
 export type AuthUser = {
   id: string;
   email: string;
@@ -40,6 +42,8 @@ export function getStoredUser(): AuthUser | null {
 }
 
 export function setSession(token: string, user: AuthUser) {
+  // A new sign-in never inherits the previous account's cached farms.
+  clearPersisted();
   try {
     const store = storage();
     store?.setItem(TOKEN_KEY, token);
@@ -58,6 +62,7 @@ export function updateStoredUser(user: AuthUser) {
 }
 
 export function clearSession() {
+  clearPersisted();
   try {
     const store = storage();
     store?.removeItem(TOKEN_KEY);

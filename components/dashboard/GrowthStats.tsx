@@ -3,7 +3,7 @@
 import { useState } from "react";
 
 import type { DayView } from "@/lib/api";
-import { daysBetween, docFor, mediumDate, nowHHMM, shortDate, todayIso } from "@/lib/dates";
+import { daysBetween, docFor, isoForDoc, mediumDate, nowHHMM, shortDate, todayIso } from "@/lib/dates";
 import { cumulativeFeed } from "@/lib/feed";
 import { fmtDec, fmtInt, num } from "@/lib/num";
 import { DetailPanel, type DetailRow, type MiniChartData } from "./DetailPanel";
@@ -105,6 +105,7 @@ export function GrowthStats({
         xStart: `D${Math.max(1, xMin)}`,
         xEnd: `D${doc(viewDate)}`,
         format,
+        xLabel: (x) => `DOC ${x} · ${mediumDate(isoForDoc(startDate, x))}`,
       };
     };
     const whenSampled = (iso: string, extra = "") => `Measured ${age(iso) === 0 ? "today" : age(iso) === 1 ? "1 day ago" : `${age(iso)} days ago`} · ${mediumDate(iso)} · DOC ${doc(iso)}${extra}`;

@@ -379,6 +379,9 @@ function Readout({
     if (ref.current) setHeight(ref.current.offsetHeight);
   });
 
+  // Date axis counts days from today; on the DOC axis the viewed cycle's own point says whether it is past today.
+  const pastToday = axis === "date" ? cx > 0 : !!series[0]?.points.find((p) => p.x === cx)?.future;
+
   const width = container?.clientWidth ?? 390;
   const left = Math.max(4, Math.min(width - TIP_W - 4, pointer.x - TIP_W / 2));
   const gap = pointer.touch ? GAP_TOUCH : GAP_MOUSE;
@@ -396,7 +399,10 @@ function Readout({
       className="pointer-events-none absolute z-20 flex flex-col gap-1.5 rounded-[10px] border border-line-dash bg-ink-850/95 px-2.5 py-2 shadow-[0_8px_24px_rgba(0,0,0,0.45)]"
     >
       <div className="flex flex-col gap-px">
-        <span className="font-mono text-[13px] font-bold text-tx-strong">{axis === "doc" ? `DOC ${cx}` : xLabel(cx)}</span>
+        <span className="flex items-center gap-1.5">
+          <span className="font-mono text-[13px] font-bold text-tx-strong">{axis === "doc" ? `DOC ${cx}` : xLabel(cx)}</span>
+          {pastToday ? <span className="rounded-full border border-dashed border-line-dash px-1.5 text-[9px] uppercase tracking-[0.06em] text-tx-muted">after today</span> : null}
+        </span>
         <span className="text-[10px] text-tx-muted">{series[0].whereAt(cx)}</span>
       </div>
       {series.map((s) => {
@@ -406,6 +412,8 @@ function Readout({
         let value = "—";
         let sub = "";
         let color = "text-tx-strong";
+        // Swatch matches the line at this point: dashed and faded once it is predicted or forecast.
+        const future = cov === "in" && !!before?.future;
         if (cov === "in" && before) {
           const unit = metricDef(s.metric).unit;
           value = `${fmtValue(before.v)}${unit ? ` ${unit}` : ""}`;
@@ -422,7 +430,7 @@ function Readout({
         return (
           <div key={s.key} className="flex items-start gap-1.5">
             <svg width="12" height="8" viewBox="0 0 12 8" className="mt-1 shrink-0">
-              <line x1="1" x2="11" y1="4" y2="4" stroke={s.color} strokeWidth="2.5" strokeDasharray={s.dash} strokeLinecap="round" />
+              <line x1="1" x2="11" y1="4" y2="4" stroke={s.color} strokeWidth="2.5" strokeDasharray={future ? "2 2" : s.dash} strokeLinecap="round" opacity={future ? 0.6 : 1} />
             </svg>
             <div className="flex min-w-0 flex-grow flex-col">
               <span className="truncate text-[10px] text-tx-soft">{s.short}</span>

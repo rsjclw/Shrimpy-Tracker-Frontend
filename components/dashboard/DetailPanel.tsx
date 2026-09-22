@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import { Icon } from "@/components/ui/Icon";
 
 export type ChartSeries = { color: string; points: { x: number; y: number }[] };
@@ -14,14 +14,28 @@ export type MiniChartData = {
   xEnd: string;
   /** Optional unit formatter for the y labels. */
   format?: (v: number) => string;
+  /** Label for an x value in the hover readout; defaults to "DOC x". */
+  xLabel?: (x: number) => string;
 };
 
 const W = 300;
 const H = 84;
 const PAD = 6;
 
-/** Small sparkline-style chart. Stretches to the container width. */
-export function MiniChart({ data, legend }: { data: MiniChartData; legend?: { label: string; color: string }[] }) {
+const TIP_W = 150;
+
+/** Small sparkline-style chart. Stretches to the container width. Hover (or tap) shows each series' value at that x. */
+export function MiniChart({
+  data,
+  legend,
+  seriesLabel = "Value",
+}: {
+  data: MiniChartData;
+  legend?: { label: string; color: string }[];
+  /** Readout name for a series without a legend entry. */
+  seriesLabel?: string;
+}) {
+  const [hover, setHover] = useState<{ x: number; px: number; width: number } | null>(null);
   const all = data.series.flatMap((s) => s.points.map((p) => p.y)).filter(Number.isFinite);
   let lo = all.length ? Math.min(...all) : 0;
   let hi = all.length ? Math.max(...all) : 1;
@@ -33,6 +47,18 @@ export function MiniChart({ data, legend }: { data: MiniChartData; legend?: { la
   const px = (x: number) => PAD + ((x - data.xMin) / span) * (W - PAD * 2);
   const py = (y: number) => H - PAD - ((y - lo) / (hi - lo)) * (H - PAD * 2);
   const fmt = data.format ?? ((v: number) => (Math.abs(v) >= 100 ? Math.round(v).toLocaleString("en-US") : v.toFixed(2).replace(/\.?0+$/, "")));
+  const xLabel = data.xLabel ?? ((x: number) => `DOC ${x}`);
+  const xs = Array.from(new Set(data.series.flatMap((s) => s.points.map((p) => p.x)))).sort((a, b) => a - b);
+
+  /** Snap the pointer to the nearest x that has a reading. */
+  function track(e: React.PointerEvent<HTMLDivElement>) {
+    if (!xs.length) return;
+    const rect = e.currentTarget.getBoundingClientRect();
+    const vx = ((e.clientX - rect.left) / rect.width) * W;
+    const want = data.xMin + ((vx - PAD) / (W - PAD * 2)) * span;
+    const x = xs.reduce((best, c) => (Math.abs(c - want) < Math.abs(best - want) ? c : best), xs[0]);
+    setHover({ x, px: (px(x) / W) * rect.width, width: rect.width });
+  }
 
   return (
     <div className="rounded-[10px] bg-ink-800 px-2.5 pb-1.5 pt-2.5">
@@ -49,6 +75,12 @@ export function MiniChart({ data, legend }: { data: MiniChartData; legend?: { la
           </span>
         ) : null}
       </div>
+      <div
+        className="relative touch-pan-y"
+        onPointerMove={track}
+        onPointerDown={track}
+        onPointerLeave={(e) => e.pointerType === "mouse" && setHover(null)}
+      >
       <svg viewBox={`0 0 ${W} ${H}`} width="100%" height={H} preserveAspectRatio="none" className="block" aria-hidden>
         {all.length === 0 ? (
           <text x={W / 2} y={H / 2} textAnchor="middle" className="fill-tx-ghost text-[10px]">
@@ -84,7 +116,51 @@ export function MiniChart({ data, legend }: { data: MiniChartData; legend?: { la
             ))}
           </g>
         ))}
+        {hover ? (
+          <>
+            <line x1={px(hover.x)} x2={px(hover.x)} y1={0} y2={H} stroke="#E7EEEC" strokeWidth={1} opacity={0.5} vectorEffect="non-scaling-stroke" />
+            {data.series.map((s, i) => {
+              const p = s.points.find((q) => q.x === hover.x);
+              return p ? (
+                <line key={i} x1={px(p.x)} x2={px(p.x)} y1={py(p.y)} y2={py(p.y)} stroke="#E7EEEC" strokeWidth={10} strokeLinecap="round" vectorEffect="non-scaling-stroke" />
+              ) : null;
+            })}
+            {data.series.map((s, i) => {
+              const p = s.points.find((q) => q.x === hover.x);
+              return p ? (
+                <line key={`c${i}`} x1={px(p.x)} x2={px(p.x)} y1={py(p.y)} y2={py(p.y)} stroke={s.color} strokeWidth={6} strokeLinecap="round" vectorEffect="non-scaling-stroke" />
+              ) : null;
+            })}
+          </>
+        ) : null}
       </svg>
+      {hover ? (
+        <div
+          role="status"
+          aria-live="polite"
+          style={{
+            width: TIP_W,
+            // Sit beside the guide line, on whichever side has room.
+            left: hover.px > hover.width / 2 ? Math.max(0, hover.px - TIP_W - 8) : Math.min(hover.width - TIP_W, hover.px + 8),
+          }}
+          className="pointer-events-none absolute top-0 z-10 flex flex-col gap-1 rounded-lg border border-line-dash bg-ink-850/95 px-2 py-1.5 shadow-[0_6px_18px_rgba(0,0,0,0.45)]"
+        >
+          <span className="font-mono text-[11px] font-bold text-tx-strong">{xLabel(hover.x)}</span>
+          {data.series.map((s, i) => {
+            const p = s.points.find((q) => q.x === hover.x);
+            // Series with no reading at this x (e.g. the other side of a forecast join) are left out.
+            if (!p) return null;
+            return (
+              <span key={i} className="flex items-center gap-1.5">
+                <span className="h-[3px] w-2.5 shrink-0 rounded-sm" style={{ background: s.color }} />
+                <span className="min-w-0 flex-grow truncate text-[10px] text-tx-soft">{legend?.[i]?.label ?? seriesLabel}</span>
+                <span className="shrink-0 font-mono text-[11px] font-semibold text-tx-strong">{fmt(p.y)}</span>
+              </span>
+            );
+          })}
+        </div>
+      ) : null}
+      </div>
       <div className="flex justify-between font-mono text-[9px] text-tx-ghost">
         <span>{all.length ? fmt(lo) : ""}</span>
         <span>
@@ -143,7 +219,7 @@ export function DetailPanel({
           </div>
         ))}
       </div>
-      <MiniChart data={chart} legend={legend} />
+      <MiniChart data={chart} legend={legend} seriesLabel={typeof title === "string" ? title : undefined} />
       <div className="flex flex-col">
         <div className="pb-1 text-[10px] uppercase tracking-[0.06em] text-tx-faint">{rowsTitle}</div>
         {loading ? <div className="py-2 text-xs text-tx-faint">Loading…</div> : null}

@@ -5,7 +5,7 @@ import { useState } from "react";
 import { Banner } from "@/components/ui/Field";
 import { Icon } from "@/components/ui/Icon";
 import { api, type DayView, type WaterParameterSourceKey, type WaterParametersUpsert } from "@/lib/api";
-import { daysBetween, docFor, mediumDate } from "@/lib/dates";
+import { daysBetween, docFor, isoForDoc, mediumDate } from "@/lib/dates";
 import { decimalInput, fmtInt, fmtNum, num } from "@/lib/num";
 import { outOfRange, shareTooHigh } from "@/lib/thresholds";
 import { Age } from "./GrowthStats";
@@ -182,7 +182,14 @@ function chartFor(ctx: Ctx, series: { key: WaterParameterSourceKey | ((d: DayVie
   }));
   const xs = built.flatMap((s) => s.points.map((p) => p.x));
   const xMin = xs.length ? Math.min(...xs, viewDoc - 1) : viewDoc - 1;
-  return { series: built, xMin, xMax: viewDoc, xStart: `D${Math.max(1, xMin)}`, xEnd: `D${viewDoc}` };
+  return {
+    series: built,
+    xMin,
+    xMax: viewDoc,
+    xStart: `D${Math.max(1, xMin)}`,
+    xEnd: `D${viewDoc}`,
+    xLabel: (x: number) => `DOC ${x} · ${mediumDate(isoForDoc(ctx.startDate, x))}`,
+  };
 }
 
 // ---------------- Water quality ----------------

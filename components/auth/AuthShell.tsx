@@ -48,21 +48,8 @@ export function AuthShell({
 
         <div className="relative mt-11 flex flex-col items-center gap-3.5">
           <div className="flex h-16 w-16 items-center justify-center rounded-[18px] border border-line-strong bg-ink-800">
-            <svg width="34" height="34" viewBox="0 0 34 34" fill="none" aria-hidden>
-              <path
-                d="M4 20c3.5-3 6.5-3 10 0s6.5 3 10 0 5-2.5 6-2"
-                className="stroke-accent"
-                strokeWidth="2.4"
-                strokeLinecap="round"
-              />
-              <path
-                d="M4 26c3.5-3 6.5-3 10 0s6.5 3 10 0 5-2.5 6-2"
-                className="stroke-accent opacity-50"
-                strokeWidth="2.4"
-                strokeLinecap="round"
-              />
-              <circle cx="17" cy="9.5" r="4.5" className="stroke-tx-strong" strokeWidth="2.2" />
-            </svg>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src="/logo.png" alt="" width={44} height={44} className="h-11 w-11" />
           </div>
           <div className="flex flex-col items-center gap-1">
             <span className="font-mono text-xs uppercase tracking-[0.16em] text-tx-muted">{eyebrow}</span>

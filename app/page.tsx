@@ -7,15 +7,18 @@ import { AccountMenu } from "@/components/dashboard/AccountMenu";
 import { AddPondForm } from "@/components/dashboard/AddPondForm";
 import { Conditions } from "@/components/dashboard/Conditions";
 import { DashboardHeader, type FarmStats } from "@/components/dashboard/DashboardHeader";
+import { DashboardSkeleton, DashStats, PondSkeletons } from "@/components/dashboard/DashboardSkeleton";
 import { alertsFor } from "@/components/dashboard/model";
 import { PondCard } from "@/components/dashboard/PondCard";
-import { Banner, Loading } from "@/components/ui/Field";
+import { Banner } from "@/components/ui/Field";
 import { Icon } from "@/components/ui/Icon";
 import { api, type Cycle, type DayView, type Farm, type FeedAdditive, type FeedType, type Grid, type Pond } from "@/lib/api";
 import { byStartDesc, currentCycle, cycleLabel, statusLabel } from "@/lib/cycles";
 import { niceDate, todayIso } from "@/lib/dates";
 import { canManage } from "@/lib/roles";
 import { useRequireUser } from "@/lib/session";
+import { load, peek } from "@/lib/cache";
+import { cachedDay, fetchDays, isDayFresh, windowFor } from "@/lib/dayViews";
 
 // Per-browser conveniences only; the page works without them.
 function readJson<T>(key: string, fallback: T): T {
@@ -57,31 +60,48 @@ export default function Dashboard() {
     if (!user) return;
     setRecent(readJson("shrimpy.recentFarms", []));
     setPinned(readJson("shrimpy.pinnedFarms", []));
-    api
-      .listFarms()
-      .then((list) => {
-        setFarms(list);
-        const params = new URLSearchParams(window.location.search);
-        const wanted = params.get("farm") ?? readJson<string | null>("shrimpy.farm", null);
-        const pick = list.find((f) => f.id === wanted) ?? list[0];
-        if (pick) setFarmId(pick.id);
-        const pond = params.get("pond");
-        if (pond) setExpanded({ [pond]: true });
-        setGridId(params.get("grid"));
-      })
-      .catch((e: Error) => setError(e.message));
+    const params = new URLSearchParams(window.location.search);
+    const pond = params.get("pond");
+    if (pond) setExpanded({ [pond]: true });
+    setGridId(params.get("grid"));
+    // Keeps the current farm when a refreshed list still has it, otherwise picks one.
+    const apply = (list: Farm[]) => {
+      setFarms(list);
+      const wanted = params.get("farm") ?? readJson<string | null>("shrimpy.farm", null);
+      const pick = list.find((f) => f.id === wanted) ?? list[0];
+      setFarmId((cur) => (cur && list.some((f) => f.id === cur) ? cur : pick?.id ?? null));
+    };
+    // Draw the last known farms at once; refresh them unless they were loaded moments ago.
+    const hit = peek<Farm[]>("farms");
+    if (hit) apply(hit.value);
+    if (hit?.fresh) return;
+    load("farms", api.listFarms, { persist: true })
+      .then(apply)
+      .catch((e: Error) => !hit && setError(e.message));
   }, [user]);
 
+  /** Farm data from the cache when fresh; otherwise shows any cached copy and fetches. Resolves with the grids. */
   const loadFarm = useCallback(async (id: string) => {
-    const [grids, ponds, cycles, feedTypes, additives] = await Promise.all([
-      api.listGrids(id),
-      api.listPonds(undefined, id),
-      api.listCycles(id),
-      api.listFeedTypes(id),
-      api.listAdditives(id),
-    ]);
-    setData({ grids, ponds, cycles, feedTypes, additives });
-    return grids;
+    const key = `farm:${id}`;
+    const hit = peek<FarmData>(key);
+    if (hit) setData(hit.value);
+    if (hit?.fresh) return hit.value.grids;
+    const fresh = await load(
+      key,
+      async (): Promise<FarmData> => {
+        const [grids, ponds, cycles, feedTypes, additives] = await Promise.all([
+          api.listGrids(id),
+          api.listPonds(undefined, id),
+          api.listCycles(id),
+          api.listFeedTypes(id),
+          api.listAdditives(id),
+        ]);
+        return { grids, ponds, cycles, feedTypes, additives };
+      },
+      { persist: true },
+    );
+    setData(fresh);
+    return fresh.grids;
   }, []);
 
   useEffect(() => {
@@ -94,14 +114,16 @@ export default function Dashboard() {
       writeJson("shrimpy.recentFarms", next);
       return next;
     });
+    const pickGrid = (grids: Grid[]) =>
+      setGridId((g) => {
+        const remembered = readJson<Record<string, string>>("shrimpy.grid", {})[farmId];
+        return grids.find((x) => x.id === g)?.id ?? grids.find((x) => x.id === remembered)?.id ?? grids[0]?.id ?? null;
+      });
+    const hit = peek<FarmData>(`farm:${farmId}`);
+    if (hit) pickGrid(hit.value.grids);
     loadFarm(farmId)
-      .then((grids) => {
-        setGridId((g) => {
-          const remembered = readJson<Record<string, string>>("shrimpy.grid", {})[farmId];
-          return grids.find((x) => x.id === g)?.id ?? grids.find((x) => x.id === remembered)?.id ?? grids[0]?.id ?? null;
-        });
-      })
-      .catch((e: Error) => setError(e.message));
+      .then(pickGrid)
+      .catch((e: Error) => !hit && setError(e.message));
   }, [farmId, loadFarm]);
 
   // Keep the URL shareable: /?farm=&grid=
@@ -124,12 +146,15 @@ export default function Dashboard() {
   const active = gridPonds.map((p) => ({ pond: p, cycle: data ? currentCycle(data.cycles, p.id) : null })).filter((x): x is { pond: Pond; cycle: Cycle } => !!x.cycle);
   const inactive = gridPonds.filter((p) => !active.some((a) => a.pond.id === p.id));
 
+  // Fetches today's whole card window (not just today) so it is the same single request the pond card needs.
   const loadToday = useCallback(
-    (pondId: string, cycleId: string) => {
-      api
-        .getCycleDay(cycleId, today)
-        .then((d) => setTodayDays((m) => ({ ...m, [pondId]: d })))
-        .catch(() => setTodayDays((m) => ({ ...m, [pondId]: null })));
+    (pondId: string, cycle: Cycle) => {
+      const cached = cachedDay(cycle.id, today);
+      if (cached) setTodayDays((m) => ({ ...m, [pondId]: cached }));
+      if (isDayFresh(cycle.id, today)) return;
+      fetchDays(cycle.id, windowFor(today, cycle.start_date))
+        .then(() => setTodayDays((m) => ({ ...m, [pondId]: cachedDay(cycle.id, today) ?? null })))
+        .catch(() => !cached && setTodayDays((m) => ({ ...m, [pondId]: null })));
     },
     [today],
   );
@@ -137,7 +162,7 @@ export default function Dashboard() {
   // Today's day view per active pond drives the collapsed "next feed" hint and the alert dot.
   const activeKey = active.map((a) => `${a.pond.id}:${a.cycle.id}`).join(",");
   useEffect(() => {
-    active.forEach((a) => loadToday(a.pond.id, a.cycle.id));
+    active.forEach((a) => loadToday(a.pond.id, a.cycle));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeKey, loadToday]);
 
@@ -161,7 +186,7 @@ export default function Dashboard() {
     }
   }
 
-  if (!user) return <Loading />;
+  if (!user) return <DashboardSkeleton user={null} today={today} />;
   if (error && !farms) {
     return (
       <main className="mx-auto max-w-[480px] px-5 py-10">
@@ -169,8 +194,7 @@ export default function Dashboard() {
       </main>
     );
   }
-  if (!farms) return <Loading label="Loading farms…" />;
-  if (!farms.length) {
+  if (farms && !farms.length) {
     return (
       <main className="mx-auto flex max-w-[480px] flex-col gap-4 px-5 py-16 text-center">
         <h1 className="text-2xl font-bold text-tx-strong">No farms yet</h1>
@@ -183,7 +207,7 @@ export default function Dashboard() {
       </main>
     );
   }
-  if (!farm) return <Loading />;
+  if (!farms || !farm) return <DashboardSkeleton user={user} today={today} />;
 
   const manage = canManage(farm.role);
   const alerts = active.filter((a) => alertsFor(todayDays[a.pond.id] ?? null).length > 0).length;
@@ -234,6 +258,8 @@ export default function Dashboard() {
             <Stat value={inactive.length} label="inactive" color="text-tx-muted" />
             <Stat value={alerts} label={alerts === 1 ? "alert" : "alerts"} color={alerts ? "text-warn" : "text-good"} />
           </>
+        ) : !data ? (
+          <DashStats />
         ) : null}
         <span className="flex-grow" />
         <Link href={`/trends?farm=${farm.id}`} className="inline-flex items-center gap-1.5 rounded-full border border-line-strong bg-ink-800 px-2.5 py-1.5 text-xs font-semibold text-tx-soft hover:text-tx-strong">
@@ -245,7 +271,10 @@ export default function Dashboard() {
       {error ? <Banner onDismiss={() => setError(null)}>{error}</Banner> : null}
 
       {!data ? (
-        <Loading label="Loading ponds…" />
+        <>
+          <Conditions grid={null} today={today} canManage={false} onSetLocation={() => {}} />
+          <PondSkeletons />
+        </>
       ) : !grid ? (
         <div className="flex flex-col gap-3 rounded-[18px] border border-dashed border-line-strong bg-ink-850 p-5 text-center">
           <span className="text-sm font-semibold text-tx-strong">No grids in {farm.name} yet</span>
@@ -288,7 +317,7 @@ export default function Dashboard() {
                 userEmail={user.email}
                 expanded={!!expanded[pond.id]}
                 onToggle={() => setExpanded((e) => ({ ...e, [pond.id]: !e[pond.id] }))}
-                onTodayChanged={() => loadToday(pond.id, cycle.id)}
+                onTodayChanged={() => loadToday(pond.id, cycle)}
               />
             ))}
             {active.length === 0 ? (

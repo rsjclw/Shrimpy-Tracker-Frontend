@@ -1,6 +1,7 @@
 "use client";
 
 import { clearSession, getToken, type AuthUser } from "./auth";
+import { markAllStale } from "./cache";
 
 export type { AuthUser } from "./auth";
 
@@ -40,6 +41,8 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
     }
     throw new Error(errorMessage(res.status, text));
   }
+  // Any successful write can change what cached reads would return.
+  if ((init.method ?? "GET").toUpperCase() !== "GET") markAllStale();
   if (res.status === 204) return undefined as T;
   return res.json();
 }

@@ -26,7 +26,9 @@ export function AdminTopNav({
   return (
     // Phones: brand, dashboard link and avatar on one row, the tabs on a scrollable row below.
     <div className="flex shrink-0 flex-wrap items-center gap-x-4 border-b border-line-soft bg-ink-900 px-4 pt-3 lg:h-16 lg:flex-nowrap lg:gap-8 lg:px-8 lg:pt-0">
-      <div className="flex shrink-0 items-baseline gap-2.5">
+      <div className="flex shrink-0 items-center gap-2.5">
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img src="/logo.png" alt="" width={24} height={24} className="h-6 w-6 shrink-0" />
         <span className="font-mono text-[11px] uppercase tracking-[0.14em] text-tx-dim">Pond Monitoring</span>
         <span className="text-lg font-bold text-tx-strong">Admin</span>
       </div>

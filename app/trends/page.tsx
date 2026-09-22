@@ -31,6 +31,29 @@ const opacityFor = (age: number) => (age <= 0 ? 1 : age === 1 ? 0.75 : 0.55);
 
 type Range = "7d" | "30d" | "cycle" | "all";
 
+const MAX_SMOOTH = 10;
+// Running totals and one-day events: averaging them would misstate the value on the day.
+const UNSMOOTHED = new Set(["cumulative_feed", "harvest_biomass_kg"]);
+
+/**
+ * Trailing moving average over the last `days` days (by x, so gaps shrink the
+ * sample rather than borrowing older readings). Recorded and predicted points
+ * are averaged separately so the forecast boundary stays honest.
+ */
+function smoothInPlace(points: Pt[], days: number) {
+  const raw = points.map((p) => p.v);
+  points.forEach((p, i) => {
+    let sum = 0;
+    let n = 0;
+    for (let j = i; j >= 0 && points[j].x > p.x - days; j--) {
+      if (points[j].future !== p.future) continue;
+      sum += raw[j];
+      n += 1;
+    }
+    if (n) p.v = sum / n;
+  });
+}
+
 export default function TrendsPage() {
   const user = useRequireUser();
   const today = todayIso();
@@ -45,6 +68,8 @@ export default function TrendsPage() {
   const [axis, setAxis] = useState<"doc" | "date">("doc");
   const [range, setRange] = useState<Range>("cycle");
   const [custom, setCustom] = useState<[number, number] | null>(null);
+  // Trailing moving-average window in days; 1 shows raw readings.
+  const [smooth, setSmooth] = useState(1);
   const [layers, setLayers] = useState<Layers>({ targets: true, safe: true, events: true, molt: false, gaps: false });
   const [overlay, setOverlay] = useState(false);
   const [pickerOpen, setPickerOpen] = useState(false);
@@ -94,8 +119,9 @@ export default function TrendsPage() {
 
   // Mirror the view in the URL so it can be shared.
   useEffect(() => {
-    if (!farm || !primaryId) return;
-    const q = new URLSearchParams({ farm: farm.id, cycle: primaryId, metrics: params.join(",") });
+    if (!farm) return;
+    const q = new URLSearchParams({ farm: farm.id, metrics: params.join(",") });
+    if (primaryId) q.set("cycle", primaryId);
     if (compares.length) q.set("compare", compares.join(","));
     window.history.replaceState(null, "", `/trends?${q.toString()}`);
   }, [farm, primaryId, params, compares]);
@@ -108,6 +134,23 @@ export default function TrendsPage() {
   const cyclesOf = (pondId: string) => cycles.filter((c) => c.pond_id === pondId).sort(byStartDesc);
   const ageOf = (c: Cycle) => cyclesOf(c.pond_id).findIndex((x) => x.id === c.id);
   const pondName = (id: string) => ponds.find((p) => p.id === id)?.name ?? "?";
+
+  /** Add a cycle to the chart: the first one picked becomes the viewed cycle, later ones compare against it. */
+  function addLine(id: string) {
+    setCustom(null);
+    if (!primaryId) setPrimaryId(id);
+    else setCompares((cs) => (cs.includes(id) ? cs : [...cs, id]));
+  }
+  /** Remove a cycle; removing the viewed one hands the view to the next cycle still on the chart. */
+  function removeLine(id: string) {
+    if (id !== primaryId) {
+      setCompares((cs) => cs.filter((x) => x !== id));
+      return;
+    }
+    setCustom(null);
+    setPrimaryId(compares[0] ?? null);
+    setCompares(compares.slice(1));
+  }
 
   const primary = cycles.find((c) => c.id === primaryId) ?? null;
   const lines = primary ? [primary, ...compares.map((id) => cycles.find((c) => c.id === id)).filter((c): c is Cycle => !!c)] : [];
@@ -156,6 +199,7 @@ export default function TrendsPage() {
         .map((p) => (todayView && p.date === today ? { ...p, value: String(cumulativeFeed(todayView)) } : p))
         .filter((p) => Number.isFinite(num(p.value)))
         .map((p) => ({ x: xOf(c, p.date), v: num(p.value), future: p.is_future, date: p.date, doc: docFor(c.start_date, p.date), sampling: p.is_sampling_day, harvest: p.is_harvest_day }));
+      if (smooth > 1 && !UNSMOOTHED.has(m)) smoothInPlace(points, smooth);
       const tag = `${pondName(c.pond_id)} · ${cycleLabel(c)}`;
       const lenDoc = docFor(c.start_date, c.actual_end_date ?? today);
       series.push({
@@ -267,7 +311,8 @@ export default function TrendsPage() {
 
   function exportCsv() {
     const xs = [...new Set(series.flatMap((s) => s.points.map((p) => p.x)))].filter((x) => x >= from && x <= to).sort((a, b) => a - b);
-    const head = [axis === "doc" ? "DOC" : "Date", ...series.map((s) => `${s.label}${metricDef(s.metric).unit ? ` (${metricDef(s.metric).unit})` : ""}`)];
+    const avg = (m: string) => (smooth > 1 && !UNSMOOTHED.has(m) ? ` [${smooth}-day avg]` : "");
+    const head = [axis === "doc" ? "DOC" : "Date", ...series.map((s) => `${s.label}${metricDef(s.metric).unit ? ` (${metricDef(s.metric).unit})` : ""}${avg(s.metric)}`)];
     const rows = xs.map((x) => [axis === "doc" ? String(x) : addDays(today, x), ...series.map((s) => {
       const p = s.points.find((q) => q.x === x);
       return p ? String(p.v) : "";
@@ -362,7 +407,18 @@ export default function TrendsPage() {
       </div>
 
       {!primary ? (
-        <div className="rounded-2xl border border-line-soft bg-ink-850 px-4 py-8 text-center text-[13px] text-tx-dim">This farm has no cycles yet.</div>
+        <div className="rounded-2xl border border-line-soft bg-ink-850 px-4 py-8 text-center text-[13px] text-tx-dim">
+          {cycles.length ? (
+            <>
+              No cycle selected.{" "}
+              <button type="button" onClick={() => setCompareOpen(true)} className="font-semibold text-accent">
+                Pick a pond or cycle
+              </button>
+            </>
+          ) : (
+            "This farm has no cycles yet."
+          )}
+        </div>
       ) : series.length === 0 ? (
         <div className="rounded-2xl border border-line-soft bg-ink-850 px-4 py-8 text-center text-[13px] text-tx-dim">No charts yet. Add parameters below.</div>
       ) : (
@@ -381,7 +437,7 @@ export default function TrendsPage() {
         />
       )}
 
-      {compares.length && primary ? (
+      {primary ? (
         <div className="-mt-2 flex flex-wrap gap-1.5">
           {lines.map((c, i) => (
             <span key={c.id} className="inline-flex h-[30px] items-center gap-1.5 rounded-full border border-line bg-ink-800 pl-2.5 pr-1">
@@ -389,13 +445,10 @@ export default function TrendsPage() {
                 <line x1="1" x2="15" y1="4" y2="4" stroke={pondColor(c.pond_id)} strokeWidth="3" strokeDasharray={dashFor(ageOf(c))} strokeLinecap="round" />
               </svg>
               <span className="whitespace-nowrap text-xs font-semibold text-tx">{pondName(c.pond_id)} {cycleLabel(c)}</span>
-              {i > 0 ? (
-                <button type="button" onClick={() => setCompares((cs) => cs.filter((x) => x !== c.id))} aria-label={`Remove ${pondName(c.pond_id)} ${cycleLabel(c)} from comparison`} className="flex h-[26px] w-[26px] items-center justify-center rounded-full text-tx-dim">
-                  <Icon name="close" size={10} strokeWidth={2.6} />
-                </button>
-              ) : (
-                <span className="w-1.5" />
-              )}
+              {i === 0 && lines.length > 1 ? <span className="font-mono text-[10px] text-tx-faint">viewing</span> : null}
+              <button type="button" onClick={() => removeLine(c.id)} aria-label={`Remove ${pondName(c.pond_id)} ${cycleLabel(c)} from the chart`} className="flex h-[26px] w-[26px] items-center justify-center rounded-full text-tx-dim">
+                <Icon name="close" size={10} strokeWidth={2.6} />
+              </button>
             </span>
           ))}
         </div>
@@ -412,6 +465,22 @@ export default function TrendsPage() {
           <label htmlFor="rng-to" className="text-[11px] text-tx-dim">To</label>
           <input id="rng-to" type="range" min={Math.round(dMin)} max={Math.round(dMax)} step={1} value={to} onChange={(e) => setCustom([from, Math.max(Number(e.target.value), from + 1)])} className="w-full accent-accent" />
         </div>
+        <div className="mt-1 flex justify-between border-t border-line-soft pt-2 text-[11px] text-tx-dim">
+          <span>Smoothing</span>
+          <span className="font-mono text-tx">{smooth > 1 ? `${smooth}-day average` : "Off · raw readings"}</span>
+        </div>
+        <input
+          id="rng-smooth"
+          type="range"
+          min={1}
+          max={MAX_SMOOTH}
+          step={1}
+          value={smooth}
+          onChange={(e) => setSmooth(Number(e.target.value))}
+          aria-label="Smoothing window in days"
+          aria-valuetext={smooth > 1 ? `${smooth}-day average` : "Off"}
+          className="w-full accent-accent"
+        />
       </div>
 
       <section className="overflow-hidden rounded-[14px] border border-line bg-ink-800">
@@ -456,9 +525,11 @@ export default function TrendsPage() {
         <div className="border-t border-line">
           <button type="button" onClick={() => setCompareOpen((o) => !o)} aria-expanded={compareOpen} className="flex w-full items-center gap-2.5 p-3.5 text-left">
             <div className="flex min-w-0 flex-grow flex-col gap-0.5">
-              <span className="text-sm font-bold text-tx-strong">Compare with</span>
+              <span className="text-sm font-bold text-tx-strong">{primary ? "Compare with" : "Ponds & cycles"}</span>
               <span className="truncate text-xs text-tx-dim">
-                {compares.length
+                {!primary
+                  ? "Nothing selected · tap a cycle to show it"
+                  : compares.length
                   ? `${compares.length} on · ${compares.map((id) => { const c = cycles.find((x) => x.id === id); return c ? `${pondName(c.pond_id)} ${cycleLabel(c)}` : ""; }).join(", ")}`
                   : "Off · tap to add other ponds or cycles"}
               </span>
@@ -474,20 +545,20 @@ export default function TrendsPage() {
                     {cyclesOf(p.id).map((c, age) => {
                       const isView = c.id === primaryId;
                       const on = compares.includes(c.id);
-                      const full = !on && !isView && compares.length >= MAX_COMPARES;
+                      const full = !on && !isView && !!primaryId && compares.length >= MAX_COMPARES;
                       return (
                         <button
                           key={c.id}
                           type="button"
                           aria-pressed={on || isView}
-                          disabled={isView || full}
-                          onClick={() => setCompares((cs) => (on ? cs.filter((x) => x !== c.id) : [...cs, c.id]))}
-                          className={`flex h-9 items-center gap-[7px] rounded-full border px-[11px] ${isView ? "border-tx-off bg-white/[0.04]" : on ? "border-accent bg-accent/[0.12]" : "border-line-strong bg-ink-850"} ${full ? "opacity-40" : ""}`}
+                          disabled={full}
+                          onClick={() => (on || isView ? removeLine(c.id) : addLine(c.id))}
+                          className={`flex h-9 items-center gap-[7px] rounded-full border px-[11px] ${isView ? "border-accent bg-white/[0.04]" : on ? "border-accent bg-accent/[0.12]" : "border-line-strong bg-ink-850"} ${full ? "opacity-40" : ""}`}
                         >
                           <svg width="16" height="8" viewBox="0 0 16 8" aria-hidden>
                             <line x1="1" x2="15" y1="4" y2="4" stroke={pondColor(p.id)} strokeWidth="3" strokeDasharray={dashFor(age)} strokeLinecap="round" />
                           </svg>
-                          <span className={`whitespace-nowrap text-xs font-semibold ${isView ? "text-tx-dim" : on ? "text-tx-strong" : "text-tx-soft"}`}>
+                          <span className={`whitespace-nowrap text-xs font-semibold ${isView || on ? "text-tx-strong" : "text-tx-soft"}`}>
                             {cycleLabel(c)}
                             {isView ? " · viewing" : c.status === "active" ? " · now" : c.status === "crashed" ? " · crashed" : ""}
                           </span>

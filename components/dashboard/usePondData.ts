@@ -1,13 +1,12 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 import { api, type Cycle, type DayView, type TrendSeries } from "@/lib/api";
+import { load, markAllStale, peek } from "@/lib/cache";
+import { cachedDay, fetchDays, isDayFresh, windowFor } from "@/lib/dayViews";
 import { addDays, daysBetween, todayIso } from "@/lib/dates";
 import { num } from "@/lib/num";
-
-/** Days of history loaded behind the viewed day, for "last reading N days ago" and detail rows. */
-export const HISTORY_DAYS = 14;
 
 export type Sampling = { date: string; abw: number; adg: number | null; fcr: number | null };
 export type HarvestPoint = { date: string; kg: number };
@@ -53,96 +52,54 @@ function toGrowth(all: TrendSeries[], cycle: Cycle): Growth {
   return { samplings, harvests, population: series(pop), dailyFeed: series(feed), cumulativeFeed: series(cum) };
 }
 
-/** The viewed day plus up to HISTORY_DAYS older days, newest first, never before the cycle start. */
-function windowFor(viewDate: string, startDate: string): string[] {
-  const out: string[] = [];
-  for (let i = 0; i <= HISTORY_DAYS; i++) {
-    const d = addDays(viewDate, -i);
-    if (d < startDate) break;
-    out.push(d);
-  }
-  return out;
-}
-
 /**
- * Everything one pond card needs for its viewed day. Day views are cached by
- * date so stepping through days only fetches what is new, and once the viewed
- * day is in, the days one step back and one step forward are prefetched so the
- * day navigator never shows a spinner for a single step. Any mutation calls
- * `reload()`, which drops the cache (a change on one day moves the metrics of
- * every later day).
+ * Everything one pond card needs for its viewed day. Day views and growth come
+ * from the shared client cache (lib/cache), so a card that remounts - say after
+ * coming back from pond settings - draws from memory without asking the
+ * backend again while the data is fresh. Once the viewed day is in, the days
+ * one step back and one step forward are prefetched so a single step never
+ * shows a spinner. Saves elsewhere mark the cache stale; `reload()` refetches
+ * this card's window and growth in the background while keeping what is shown.
  */
 export function usePondData(cycle: Cycle, viewDate: string, maxDate: string, enabled = true) {
-  const cache = useRef(new Map<string, DayView>());
-  const pending = useRef(new Map<string, Promise<void>>());
-  const generation = useRef(0);
   const [version, setVersion] = useState(0);
   const [days, setDays] = useState<DayView[]>([]); // viewed day first, then older
-  const [growth, setGrowth] = useState<Growth | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const dropCache = useCallback(() => {
-    generation.current += 1;
-    cache.current = new Map();
-    pending.current = new Map();
-  }, []);
-
-  useEffect(() => {
-    dropCache();
-    setGrowth(null);
-  }, [cycle.id, dropCache]);
+  const growthTo = viewDate > todayIso() ? viewDate : todayIso();
+  const growthKey = `growth:${cycle.id}:${growthTo}`;
+  const [growth, setGrowth] = useState<Growth | null>(() => peek<Growth>(growthKey)?.value ?? null);
 
   useEffect(() => {
     if (!enabled) return;
     let cancelled = false;
 
-    // Fetches uncached dates with one day-views call per contiguous run, sharing in-flight
-    // requests so a prefetch and a real step never fetch the same day twice.
-    const fetchRun = (run: string[]) => {
-      const gen = generation.current;
-      const req = api.getCycleDayViews(cycle.id, run[0], run[run.length - 1]).then((views) => {
-        if (gen === generation.current) views.forEach((v) => cache.current.set(v.date, v));
-      });
-      run.forEach((d) => pending.current.set(d, req));
-      req.finally(() => run.forEach((d) => pending.current.get(d) === req && pending.current.delete(d))).catch(() => {});
-    };
-    const fetchDays = (dates: string[]): Promise<unknown> => {
-      const missing = dates.filter((d) => !cache.current.has(d) && !pending.current.has(d)).sort();
-      let run: string[] = [];
-      for (const d of missing) {
-        if (run.length && addDays(run[run.length - 1], 1) !== d) {
-          fetchRun(run);
-          run = [];
-        }
-        run.push(d);
-      }
-      if (run.length) fetchRun(run);
-      return Promise.all(dates.map((d) => pending.current.get(d)).filter(Boolean));
-    };
-
     const prefetchNeighbours = () => {
       const next = addDays(viewDate, 1);
       const around = [...windowFor(addDays(viewDate, -1), cycle.start_date), ...(next <= maxDate ? [next] : [])];
-      fetchDays(around).catch(() => {});
+      fetchDays(cycle.id, around).catch(() => {});
     };
 
     const wanted = windowFor(viewDate, cycle.start_date);
-    const show = () => setDays(wanted.map((d) => cache.current.get(d)).filter((d): d is DayView => !!d));
-    const missing = wanted.filter((d) => !cache.current.has(d));
-    if (!missing.length) {
-      // Everything is cached (usually a prefetched step): swap in the same render, no spinner.
-      show();
+    const fromCache = () => wanted.map((d) => cachedDay(cycle.id, d)).filter((d): d is DayView => !!d);
+    const cached = fromCache();
+    const complete = cached.length === wanted.length;
+    if (complete) {
+      // Show what we have straight away, even if stale; a stale window refreshes behind it.
+      setDays(cached);
       setLoading(false);
+    }
+    if (wanted.every((d) => isDayFresh(cycle.id, d))) {
       setError(null);
       prefetchNeighbours();
       return;
     }
-    setLoading(true);
-    fetchDays(missing)
+    if (!complete) setLoading(true);
+    fetchDays(cycle.id, wanted)
       .then(() => {
         if (cancelled) return;
-        show();
+        setDays(fromCache());
         setError(null);
         prefetchNeighbours();
       })
@@ -156,27 +113,32 @@ export function usePondData(cycle: Cycle, viewDate: string, maxDate: string, ena
   useEffect(() => {
     if (!enabled) return;
     let cancelled = false;
-    const to = viewDate > todayIso() ? viewDate : todayIso();
-    Promise.all(GROWTH_METRICS.map((m) => api.getCycleTrend(cycle.id, m, cycle.start_date, to)))
-      .then((all) => !cancelled && setGrowth(toGrowth(all, cycle)))
-      .catch(() => !cancelled && setGrowth({ samplings: [], harvests: [], population: [], dailyFeed: [], cumulativeFeed: [] }));
+    const hit = peek<Growth>(growthKey);
+    setGrowth(hit?.value ?? null);
+    if (hit?.fresh) return;
+    const fetchGrowth = () =>
+      Promise.all(GROWTH_METRICS.map((m) => api.getCycleTrend(cycle.id, m, cycle.start_date, growthTo))).then((all) => toGrowth(all, cycle));
+    load(growthKey, fetchGrowth)
+      .then((g) => !cancelled && setGrowth(g))
+      .catch(() => !cancelled && !hit && setGrowth({ samplings: [], harvests: [], population: [], dailyFeed: [], cumulativeFeed: [] }));
     return () => {
       cancelled = true;
     };
     // Growth covers the whole cycle; refetch only when data changes or the view moves past today.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [cycle.id, cycle.start_date, version, enabled, viewDate > todayIso() ? viewDate : "past"]);
+  }, [growthKey, version, enabled]);
 
   const reload = useCallback(() => {
-    dropCache();
+    // Saves already mark the cache stale in lib/api; marking here too covers a reload with no write behind it.
+    markAllStale();
     setVersion((v) => v + 1);
-  }, [dropCache]);
+  }, []);
 
-  // A step onto fully prefetched days reads straight from the cache, so the first render already has the day.
+  // A step onto cached days reads straight from the cache, so the first render already has the day.
   let current = days;
   if (current[0]?.date !== viewDate) {
-    const window = windowFor(viewDate, cycle.start_date);
-    if (window.every((d) => cache.current.has(d))) current = window.map((d) => cache.current.get(d)!);
+    const fromCache = windowFor(viewDate, cycle.start_date).map((d) => cachedDay(cycle.id, d));
+    if (fromCache.every(Boolean)) current = fromCache as DayView[];
   }
   const day = current[0]?.date === viewDate ? current[0] : null;
   return { day, days: day ? current : [], growth, loading: loading && !day, error, reload };

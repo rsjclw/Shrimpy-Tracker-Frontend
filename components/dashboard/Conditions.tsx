@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 
 import { api, type DayEnvironment, type Grid } from "@/lib/api";
+import { load, peek, put } from "@/lib/cache";
 import { addDays, mediumDate } from "@/lib/dates";
 import { moonEmoji, moonOn, nextSyzygy } from "@/lib/moon";
 import { fmtNum, num } from "@/lib/num";
@@ -44,14 +45,14 @@ const CONDS: Record<Exclude<CondKey, "moon">, { label: string; val: (d: DayEnvir
 
 const rel = (off: number) => (off === 0 ? "Today" : off === 1 ? "Tmrw" : off === -1 ? "Yday" : off < 0 ? `${-off}d ago` : `in ${off}d`);
 
-/** Grid-level weather and moon chips, with a detail panel per chip. */
+/** Grid-level weather and moon chips, with a detail panel per chip. Draws dash placeholders until the grid and its weather arrive. */
 export function Conditions({
   grid,
   today,
   onSetLocation,
   canManage,
 }: {
-  grid: Grid;
+  grid: Grid | null;
   today: string;
   onSetLocation: () => void;
   canManage: boolean;
@@ -59,27 +60,37 @@ export function Conditions({
   const [days, setDays] = useState<DayEnvironment[] | null>(null);
   const [open, setOpen] = useState<CondKey | null>(null);
   const [refreshing, setRefreshing] = useState(false);
-  const hasLocation = grid.latitude !== null && grid.longitude !== null;
+  const hasLocation = !!grid && grid.latitude !== null && grid.longitude !== null;
+  const gridId = grid?.id;
+
+  const envKey = `env:${gridId}:${today}`;
 
   useEffect(() => {
-    setDays(null);
     setOpen(null);
-    if (!hasLocation) return;
+    if (!hasLocation || !gridId) {
+      setDays(null);
+      return;
+    }
+    // Last known weather draws at once; refetch only when it is not fresh.
+    const hit = peek<DayEnvironment[]>(envKey);
+    setDays(hit?.value ?? null);
+    if (hit?.fresh) return;
     let cancelled = false;
-    api
-      .getGridEnvironment(grid.id, addDays(today, -7), addDays(today, 5))
-      .then((env) => !cancelled && setDays(env.days))
-      .catch(() => !cancelled && setDays([]));
+    load(envKey, () => api.getGridEnvironment(gridId, addDays(today, -7), addDays(today, 5)).then((env) => env.days), { persist: true })
+      .then((d) => !cancelled && setDays(d))
+      .catch(() => !cancelled && !hit && setDays([]));
     return () => {
       cancelled = true;
     };
-  }, [grid.id, hasLocation, today]);
+  }, [envKey, gridId, hasLocation, today]);
 
   async function refresh() {
+    if (!grid) return;
     setRefreshing(true);
     try {
       await api.refreshGridEnvironment(grid.id);
       const env = await api.getGridEnvironment(grid.id, addDays(today, -7), addDays(today, 5));
+      put(envKey, env.days, { persist: true });
       setDays(env.days);
     } catch {
       // The chip row keeps saying "not synced"; nothing else to do.
@@ -94,11 +105,12 @@ export function Conditions({
   const molt = moon.window !== null;
   const next = nextSyzygy(moon);
 
-  const lat = num(grid.latitude);
-  const lng = num(grid.longitude);
+  const pending = !grid || (hasLocation && days === null);
+  const lat = num(grid?.latitude ?? null);
+  const lng = num(grid?.longitude ?? null);
   const coords = hasLocation ? `${Math.abs(lat).toFixed(3)}°${lat < 0 ? "S" : "N"}, ${Math.abs(lng).toFixed(3)}°${lng < 0 ? "W" : "E"}` : "";
 
-  const chips: { key: CondKey; emoji: string; text: string; aria: string; warn?: boolean }[] = [
+  const chips: { key: CondKey; emoji: string; text: string; aria: string; warn?: boolean; placeholder?: boolean }[] = [
     {
       key: "moon",
       emoji: moonEmoji(moon),
@@ -114,15 +126,22 @@ export function Conditions({
       { key: "rain", emoji: "🌧️", text: `${f1(num(w0.precipitation_mm))} mm · ${fmtNum(w0.precipitation_probability_max_pct, 0)}%`, aria: "Rain" },
       { key: "temp", emoji: "🌡️", text: `${Math.round(num(w0.temp_min_c))}–${Math.round(num(w0.temp_max_c))}°`, aria: "Temperature" },
     );
+  } else if (pending) {
+    chips.push(
+      { key: "sun", emoji: "☀️", text: "— MJ", aria: "Sun on pond", placeholder: true },
+      { key: "cloud", emoji: "☁️", text: "—%", aria: "Cloud", placeholder: true },
+      { key: "rain", emoji: "🌧️", text: "— mm", aria: "Rain", placeholder: true },
+      { key: "temp", emoji: "🌡️", text: "—°", aria: "Temperature", placeholder: true },
+    );
   }
 
   return (
     <div className="flex flex-col gap-2.5">
       <div className="flex items-center gap-2">
-        <span className="min-w-0 truncate text-[11px] uppercase tracking-[0.08em] text-tx-muted">Conditions · {grid.name}</span>
+        <span className="min-w-0 truncate text-[11px] uppercase tracking-[0.08em] text-tx-muted">Conditions · {grid?.name ?? "—"}</span>
         {coords ? <span className="whitespace-nowrap font-mono text-[10px] text-tx-faint">{coords}</span> : null}
         <span className="ml-auto shrink-0 rounded-full border border-dashed border-tx-off px-2 py-0.5 text-[10px] text-tx-muted">
-          {w0?.is_forecast === false ? "Actual · today" : "Forecast · today"}
+          {pending ? "— · today" : w0?.is_forecast === false ? "Actual · today" : "Forecast · today"}
         </span>
       </div>
       <div className="flex flex-wrap gap-2">
@@ -133,6 +152,7 @@ export function Conditions({
               key={c.key}
               type="button"
               onClick={() => setOpen(on ? null : c.key)}
+              disabled={c.placeholder}
               aria-pressed={on}
               aria-label={`${c.aria} details`}
               className={`inline-flex h-10 items-center gap-[7px] rounded-full border px-3 ${
@@ -142,11 +162,11 @@ export function Conditions({
               <span className="text-base leading-none" aria-hidden>
                 {c.emoji}
               </span>
-              <span className={`whitespace-nowrap font-mono text-[13px] font-semibold ${c.warn ? "text-warn" : "text-tx-strong"}`}>{c.text}</span>
+              <span className={`whitespace-nowrap font-mono text-[13px] font-semibold ${c.warn ? "text-warn" : c.placeholder ? "text-tx-faint" : "text-tx-strong"}`}>{c.text}</span>
             </button>
           );
         })}
-        {!hasLocation ? (
+        {grid && !hasLocation ? (
           <button type="button" onClick={onSetLocation} disabled={!canManage} className="inline-flex h-10 items-center rounded-full border border-dashed border-line-dash px-3 text-xs font-semibold text-tx-muted disabled:opacity-60">
             {canManage ? "Set this grid's location for weather →" : "No location set for this grid"}
           </button>
@@ -186,7 +206,7 @@ function MoonDetail({ today, onClose }: { today: string; onClose: () => void }) 
     <DetailPanel
       title="Moon"
       lines={[{ value: `${Math.round(m.illumination * 100)}% · ${m.waxing ? "waxing" : "waning"}`, when: title }]}
-      chart={{ series: [{ color: "#F5E6B8", points }], xMin: -7, xMax: 14, xStart: mediumDate(addDays(today, -7)), xEnd: mediumDate(addDays(today, 14)), format: (v) => `${Math.round(v)}%` }}
+      chart={{ series: [{ color: "#F5E6B8", points }], xMin: -7, xMax: 14, xStart: mediumDate(addDays(today, -7)), xEnd: mediumDate(addDays(today, 14)), format: (v) => `${Math.round(v)}%`, xLabel: (x) => `${rel(x)} · ${mediumDate(addDays(today, x))}` }}
       legend={[{ label: "Illumination %", color: "#F5E6B8" }]}
       rowsTitle="Coming days · molt window opens 4 days before full/new moon"
       rows={rows}
@@ -236,7 +256,7 @@ function WeatherDetail({ condKey, byDate, today, onClose }: { condKey: Exclude<C
     <DetailPanel
       title={c.label}
       lines={[{ value: w0 ? c.fmt(w0) : "—", when: `${w0?.is_forecast === false ? "Measured" : "Forecast"} for today · ${mediumDate(today)}${w0 && c.sub(w0) ? ` · ${c.sub(w0)}` : ""}` }]}
-      chart={{ series, xMin: -7, xMax: 5, xStart: mediumDate(addDays(today, -7)), xEnd: mediumDate(addDays(today, 5)) }}
+      chart={{ series, xMin: -7, xMax: 5, xStart: mediumDate(addDays(today, -7)), xEnd: mediumDate(addDays(today, 5)), xLabel: (x) => `${rel(x)} · ${mediumDate(addDays(today, x))}` }}
       legend={legend}
       rowsTitle="Day by day"
       rows={rows}
