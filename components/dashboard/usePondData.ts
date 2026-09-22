@@ -53,48 +53,97 @@ function toGrowth(all: TrendSeries[], cycle: Cycle): Growth {
   return { samplings, harvests, population: series(pop), dailyFeed: series(feed), cumulativeFeed: series(cum) };
 }
 
+/** The viewed day plus up to HISTORY_DAYS older days, newest first, never before the cycle start. */
+function windowFor(viewDate: string, startDate: string): string[] {
+  const out: string[] = [];
+  for (let i = 0; i <= HISTORY_DAYS; i++) {
+    const d = addDays(viewDate, -i);
+    if (d < startDate) break;
+    out.push(d);
+  }
+  return out;
+}
+
 /**
- * Everything one expanded pond card needs for its viewed day. Day views are
- * cached by date so stepping through days only fetches what is new; any
- * mutation calls `reload()`, which drops the cache (a change on one day moves
- * the metrics of every later day).
+ * Everything one pond card needs for its viewed day. Day views are cached by
+ * date so stepping through days only fetches what is new, and once the viewed
+ * day is in, the days one step back and one step forward are prefetched so the
+ * day navigator never shows a spinner for a single step. Any mutation calls
+ * `reload()`, which drops the cache (a change on one day moves the metrics of
+ * every later day).
  */
-export function usePondData(cycle: Cycle, viewDate: string, enabled: boolean) {
+export function usePondData(cycle: Cycle, viewDate: string, maxDate: string, enabled = true) {
   const cache = useRef(new Map<string, DayView>());
+  const pending = useRef(new Map<string, Promise<DayView>>());
+  const generation = useRef(0);
   const [version, setVersion] = useState(0);
   const [days, setDays] = useState<DayView[]>([]); // viewed day first, then older
   const [growth, setGrowth] = useState<Growth | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
+  const dropCache = useCallback(() => {
+    generation.current += 1;
     cache.current = new Map();
+    pending.current = new Map();
+  }, []);
+
+  useEffect(() => {
+    dropCache();
     setGrowth(null);
-  }, [cycle.id]);
+  }, [cycle.id, dropCache]);
 
   useEffect(() => {
     if (!enabled) return;
     let cancelled = false;
-    const wanted: string[] = [];
-    for (let i = 0; i <= HISTORY_DAYS; i++) {
-      const d = addDays(viewDate, -i);
-      if (d < cycle.start_date) break;
-      wanted.push(d);
-    }
+
+    // Shares in-flight requests, so a prefetch and a real step never fetch the same day twice.
+    const fetchDay = (d: string): Promise<DayView> => {
+      const hit = cache.current.get(d);
+      if (hit) return Promise.resolve(hit);
+      const inFlight = pending.current.get(d);
+      if (inFlight) return inFlight;
+      const gen = generation.current;
+      const req = api.getCycleDay(cycle.id, d).then((v) => {
+        if (gen === generation.current) cache.current.set(d, v);
+        return v;
+      });
+      req.finally(() => pending.current.get(d) === req && pending.current.delete(d)).catch(() => {});
+      pending.current.set(d, req);
+      return req;
+    };
+
+    const prefetchNeighbours = () => {
+      const next = addDays(viewDate, 1);
+      const around = [...windowFor(addDays(viewDate, -1), cycle.start_date), ...(next <= maxDate ? [next] : [])];
+      around.forEach((d) => void fetchDay(d).catch(() => {}));
+    };
+
+    const wanted = windowFor(viewDate, cycle.start_date);
+    const show = () => setDays(wanted.map((d) => cache.current.get(d)).filter((d): d is DayView => !!d));
     const missing = wanted.filter((d) => !cache.current.has(d));
-    setLoading(missing.length > 0);
-    Promise.all(missing.map((d) => api.getCycleDay(cycle.id, d).then((v) => cache.current.set(d, v))))
+    if (!missing.length) {
+      // Everything is cached (usually a prefetched step): swap in the same render, no spinner.
+      show();
+      setLoading(false);
+      setError(null);
+      prefetchNeighbours();
+      return;
+    }
+    setLoading(true);
+    Promise.all(missing.map(fetchDay))
       .then(() => {
         if (cancelled) return;
-        setDays(wanted.map((d) => cache.current.get(d)).filter((d): d is DayView => !!d));
+        show();
         setError(null);
+        prefetchNeighbours();
       })
       .catch((e: Error) => !cancelled && setError(e.message))
       .finally(() => !cancelled && setLoading(false));
     return () => {
       cancelled = true;
     };
-  }, [cycle.id, cycle.start_date, viewDate, version, enabled]);
+  }, [cycle.id, cycle.start_date, viewDate, maxDate, version, enabled]);
 
   useEffect(() => {
     if (!enabled) return;
@@ -111,10 +160,16 @@ export function usePondData(cycle: Cycle, viewDate: string, enabled: boolean) {
   }, [cycle.id, cycle.start_date, version, enabled, viewDate > todayIso() ? viewDate : "past"]);
 
   const reload = useCallback(() => {
-    cache.current = new Map();
+    dropCache();
     setVersion((v) => v + 1);
-  }, []);
+  }, [dropCache]);
 
-  const day = days[0]?.date === viewDate ? days[0] : null;
-  return { day, days: day ? days : [], growth, loading: loading && !day, error, reload };
+  // A step onto fully prefetched days reads straight from the cache, so the first render already has the day.
+  let current = days;
+  if (current[0]?.date !== viewDate) {
+    const window = windowFor(viewDate, cycle.start_date);
+    if (window.every((d) => cache.current.has(d))) current = window.map((d) => cache.current.get(d)!);
+  }
+  const day = current[0]?.date === viewDate ? current[0] : null;
+  return { day, days: day ? current : [], growth, loading: loading && !day, error, reload };
 }

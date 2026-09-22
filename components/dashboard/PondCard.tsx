@@ -50,7 +50,7 @@ export function PondCard({
 }) {
   const maxDate = isoForDoc(cycle.start_date, docFor(cycle.start_date, today) + 30);
   const [viewDate, setViewDate] = useState(today);
-  const { day, days, growth, loading, error, reload } = usePondData(cycle, viewDate, expanded);
+  const { day, days, growth, loading, error, reload } = usePondData(cycle, viewDate, maxDate);
   const [logRequest, setLogRequest] = useState<LogKind | null>(null);
 
   useEffect(() => setViewDate(today), [cycle.id, today]);
