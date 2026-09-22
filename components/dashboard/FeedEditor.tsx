@@ -99,6 +99,13 @@ export function FeedEditor({
   const doc = day.metrics.doc;
   const canPredict = kind !== "past" && canManage;
 
+  /** Replace the rows wholesale and close the feeding index / predict helpers. */
+  function replaceRows(next: FeedRow[]) {
+    setRows(next);
+    setFiState(null);
+    setPredictOpen(false);
+  }
+
   function update(key: string, patch: Partial<FeedRow>) {
     setRows((rs) => rs.map((r) => (r.key === key ? { ...r, ...patch } : r)));
   }
@@ -138,7 +145,7 @@ export function FeedEditor({
         <div className="min-w-0 truncate px-0.5 font-mono text-[10px] text-tx-muted">Saving to {saveContext}</div>
         <div className="flex shrink-0 items-center gap-1.5">
           {rows.some((r) => !r.locked) ? (
-            <button type="button" onClick={() => setRows(locked)} className="rounded-md bg-ink-850 px-2.5 py-1 text-[11px] font-semibold text-bad">
+            <button type="button" onClick={() => replaceRows(locked)} className="rounded-md bg-ink-850 px-2.5 py-1 text-[11px] font-semibold text-bad">
               Clear all
             </button>
           ) : null}
@@ -160,7 +167,7 @@ export function FeedEditor({
         <button
           type="button"
           disabled={!copySource}
-          onClick={() => copySource && setRows([...locked, ...copySource.rows()])}
+          onClick={() => copySource && replaceRows([...locked, ...copySource.rows()])}
           className="rounded-lg border border-line bg-ink-850 px-1.5 py-[9px] text-center text-xs font-semibold text-tx disabled:opacity-40"
         >
           {copySource?.label ?? "Nothing to copy"}
