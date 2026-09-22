@@ -551,6 +551,9 @@ export const api = {
   }) => request<Cycle>("/cycles", { method: "POST", body: JSON.stringify(b) }),
   getCycleDay: (cycleId: string, day: string) =>
     request<DayView>(`/cycles/${cycleId}/days/${day}`),
+  /** Full day views for [from, to], oldest first (at most 62 days per call). */
+  getCycleDayViews: (cycleId: string, from: string, to: string) =>
+    request<DayView[]>(`/cycles/${cycleId}/day-views?from=${from}&to=${to}`),
   listCycleDays: (cycleId: string, from: string, to: string) =>
     request<DaySummary[]>(`/cycles/${cycleId}/days?from=${from}&to=${to}`),
   upsertCycleDay: (

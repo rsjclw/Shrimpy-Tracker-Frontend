@@ -74,7 +74,7 @@ function windowFor(viewDate: string, startDate: string): string[] {
  */
 export function usePondData(cycle: Cycle, viewDate: string, maxDate: string, enabled = true) {
   const cache = useRef(new Map<string, DayView>());
-  const pending = useRef(new Map<string, Promise<DayView>>());
+  const pending = useRef(new Map<string, Promise<void>>());
   const generation = useRef(0);
   const [version, setVersion] = useState(0);
   const [days, setDays] = useState<DayView[]>([]); // viewed day first, then older
@@ -97,26 +97,34 @@ export function usePondData(cycle: Cycle, viewDate: string, maxDate: string, ena
     if (!enabled) return;
     let cancelled = false;
 
-    // Shares in-flight requests, so a prefetch and a real step never fetch the same day twice.
-    const fetchDay = (d: string): Promise<DayView> => {
-      const hit = cache.current.get(d);
-      if (hit) return Promise.resolve(hit);
-      const inFlight = pending.current.get(d);
-      if (inFlight) return inFlight;
+    // Fetches uncached dates with one day-views call per contiguous run, sharing in-flight
+    // requests so a prefetch and a real step never fetch the same day twice.
+    const fetchRun = (run: string[]) => {
       const gen = generation.current;
-      const req = api.getCycleDay(cycle.id, d).then((v) => {
-        if (gen === generation.current) cache.current.set(d, v);
-        return v;
+      const req = api.getCycleDayViews(cycle.id, run[0], run[run.length - 1]).then((views) => {
+        if (gen === generation.current) views.forEach((v) => cache.current.set(v.date, v));
       });
-      req.finally(() => pending.current.get(d) === req && pending.current.delete(d)).catch(() => {});
-      pending.current.set(d, req);
-      return req;
+      run.forEach((d) => pending.current.set(d, req));
+      req.finally(() => run.forEach((d) => pending.current.get(d) === req && pending.current.delete(d))).catch(() => {});
+    };
+    const fetchDays = (dates: string[]): Promise<unknown> => {
+      const missing = dates.filter((d) => !cache.current.has(d) && !pending.current.has(d)).sort();
+      let run: string[] = [];
+      for (const d of missing) {
+        if (run.length && addDays(run[run.length - 1], 1) !== d) {
+          fetchRun(run);
+          run = [];
+        }
+        run.push(d);
+      }
+      if (run.length) fetchRun(run);
+      return Promise.all(dates.map((d) => pending.current.get(d)).filter(Boolean));
     };
 
     const prefetchNeighbours = () => {
       const next = addDays(viewDate, 1);
       const around = [...windowFor(addDays(viewDate, -1), cycle.start_date), ...(next <= maxDate ? [next] : [])];
-      around.forEach((d) => void fetchDay(d).catch(() => {}));
+      fetchDays(around).catch(() => {});
     };
 
     const wanted = windowFor(viewDate, cycle.start_date);
@@ -131,7 +139,7 @@ export function usePondData(cycle: Cycle, viewDate: string, maxDate: string, ena
       return;
     }
     setLoading(true);
-    Promise.all(missing.map(fetchDay))
+    fetchDays(missing)
       .then(() => {
         if (cancelled) return;
         show();
