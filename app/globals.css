@@ -3,13 +3,75 @@
 @tailwind utilities;
 
 :root {
-  color-scheme: light;
+  color-scheme: dark;
 }
 
-html, body {
-  height: 100%;
+html,
+body {
+  min-height: 100%;
 }
 
 body {
-  @apply bg-slate-50 text-slate-900 antialiased;
+  @apply bg-ink-950 font-sans text-tx antialiased;
+}
+
+::selection {
+  @apply bg-accent text-accent-ink;
+}
+
+a {
+  @apply text-accent hover:text-accent-hover;
+}
+
+input,
+select,
+textarea,
+button {
+  font-family: inherit;
+}
+
+input::placeholder,
+textarea::placeholder {
+  color: #5e6e69;
+}
+
+/* Native date pickers and selects follow the dark scheme. */
+input[type="date"],
+select {
+  color-scheme: dark;
+}
+
+@layer components {
+  /* Small uppercase field label used across every form. */
+  .field-label {
+    @apply text-[10px] uppercase tracking-[0.06em] text-tx-dim;
+  }
+
+  /* Uppercase section eyebrow, e.g. "FEED SCHEDULE". */
+  .eyebrow {
+    @apply text-[11px] uppercase tracking-[0.08em] text-tx-faint;
+  }
+
+  .input {
+    @apply h-11 w-full rounded-[10px] border border-line bg-ink-850 px-3 text-[15px] text-tx-strong outline-none transition-colors focus:border-accent disabled:opacity-60;
+  }
+
+  .input-sm {
+    @apply h-[42px] w-full rounded-lg border border-line bg-ink-800 px-2.5 text-sm text-tx-strong outline-none transition-colors focus:border-accent disabled:opacity-60;
+  }
+
+  /* Compact inputs inside dense edit grids (feed rows, water fields). */
+  .input-xs {
+    @apply w-full rounded-md border border-line bg-ink-800 px-[7px] py-1.5 font-mono text-[13px] font-semibold text-tx-strong outline-none transition-colors focus:border-accent disabled:opacity-60;
+  }
+
+  .input-error {
+    @apply border-bad/60;
+  }
+}
+
+@layer utilities {
+  .tabular {
+    font-variant-numeric: tabular-nums;
+  }
 }

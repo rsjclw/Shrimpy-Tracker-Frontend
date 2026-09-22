@@ -141,7 +141,19 @@ export type Cycle = {
   prediction_config: PredictionConfig | null;
 };
 export type FeedAdditive = { id: number; farm_id: string; name: string; dosage_gr_per_kg: string | null };
-export type FeedingAdditive = { name: string; dosage_gr_per_kg: number };
+/** An additive as sent on a feeding: by catalog id or name; leave the dose out to use the cycle's last dose. */
+export type FeedingAdditiveIn = { additive_id?: number; name?: string; dosage_gr_per_kg?: number };
+/** An additive as stored on a feeding. additive_id is null only for legacy entries matching no catalog name. */
+export type FeedingAdditive = { additive_id: number | null; name: string; dosage_gr_per_kg: string; amount_g: string | null };
+export type AdditiveDose = {
+  additive_id: number;
+  name: string;
+  dosage_gr_per_kg: string | null;
+  source: "last_used" | "default" | "none";
+  last_used_date: string | null;
+  default_dosage_gr_per_kg: string | null;
+};
+export type AdditiveUsage = { date: string; additive_id: number | null; name: string; feed_kg: string; amount_g: string; dosage_gr_per_kg: string };
 export type FeedType = {
   id: string;
   farm_id: string;
@@ -177,6 +189,9 @@ export type Feeding = {
   additives: FeedingAdditive[];
   feed_types: FeedingFeedType[];
   notes: string | null;
+  updated_at?: string | null;
+  updated_by?: string | null;
+  updated_by_type?: string | null;
 };
 export type Harvest = {
   id: string;
@@ -301,6 +316,24 @@ export type DayView = {
   metrics: DayMetrics;
   lunar: LunarDay;
   environment: DayEnvironment | null;
+};
+export type DaySummary = {
+  date: string;
+  doc: number;
+  daily_feed_kg: string;
+  abw_g: string | null;
+  estimated_population: number | null;
+  estimated_biomass_kg: string | null;
+  harvest_biomass_kg: string;
+  fcr: string | null;
+};
+export type PopulationSample = {
+  id: string;
+  cycle_id: string;
+  date: string;
+  population: number;
+  method: string | null;
+  notes: string | null;
 };
 export type TrendPoint = {
   date: string;
@@ -486,7 +519,7 @@ export const api = {
     id: string,
     b: {
       name?: string;
-      planned_end_date?: string;
+      planned_end_date?: string | null;
       actual_end_date?: string | null;
       status?: string;
       maximum_daily_feed_capacity_kg?: number | null;
@@ -518,6 +551,8 @@ export const api = {
   }) => request<Cycle>("/cycles", { method: "POST", body: JSON.stringify(b) }),
   getCycleDay: (cycleId: string, day: string) =>
     request<DayView>(`/cycles/${cycleId}/days/${day}`),
+  listCycleDays: (cycleId: string, from: string, to: string) =>
+    request<DaySummary[]>(`/cycles/${cycleId}/days?from=${from}&to=${to}`),
   upsertCycleDay: (
     cycleId: string,
     day: string,
@@ -558,8 +593,11 @@ export const api = {
       method: "POST",
       body: JSON.stringify(b),
     }),
-  createSample: (cycleId: string, b: { date: string; population: number; method?: string }) =>
-    request(`/cycles/${cycleId}/samples`, { method: "POST", body: JSON.stringify(b) }),
+  createSample: (
+    cycleId: string,
+    b: { date: string; population: number; method?: string; notes?: string },
+  ) =>
+    request<PopulationSample>(`/cycles/${cycleId}/samples`, { method: "POST", body: JSON.stringify(b) }),
 
   createFeeding: (
     dailyLogId: string,
@@ -567,7 +605,7 @@ export const api = {
       feed_time: string;
       amount_kg: number;
       duration_min?: number;
-      additives?: FeedingAdditive[];
+      additives?: FeedingAdditiveIn[];
       feed_types?: FeedingFeedType[];
       notes?: string;
     },
@@ -576,7 +614,7 @@ export const api = {
       method: "POST",
       body: JSON.stringify(b),
     }),
-  updateFeeding: (id: string, b: Partial<Omit<Feeding, "id" | "daily_log_id">>) =>
+  updateFeeding: (id: string, b: Partial<Omit<Feeding, "id" | "daily_log_id" | "additives">> & { additives?: FeedingAdditiveIn[] }) =>
     request<Feeding>(`/feedings/${id}`, { method: "PUT", body: JSON.stringify(b) }),
   deleteFeeding: (id: string) => request<void>(`/feedings/${id}`, { method: "DELETE" }),
 
@@ -661,6 +699,10 @@ export const api = {
       body: JSON.stringify(b),
     }),
 
+  getAdditiveDoses: (cycleId: string, date: string) =>
+    request<AdditiveDose[]>(`/cycles/${cycleId}/additive-doses?date=${date}`),
+  getAdditiveUsage: (cycleId: string, from: string, to: string) =>
+    request<AdditiveUsage[]>(`/cycles/${cycleId}/additive-usage?from=${from}&to=${to}`),
   listAdditives: (farmId?: string) => request<FeedAdditive[]>(`/additives${farmId ? `?farm_id=${farmId}` : ""}`),
   createAdditive: (b: { farm_id: string; name: string; dosage_gr_per_kg?: number | null }) =>
     request<FeedAdditive>("/additives", { method: "POST", body: JSON.stringify(b) }),

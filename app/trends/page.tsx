@@ -1,736 +1,535 @@
 "use client";
 
-import { addDays, differenceInCalendarDays, format, parseISO } from "date-fns";
-import Link from "next/link";
-import { useRouter, useSearchParams } from "next/navigation";
-import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
-import { DocTrendChart, type ChartSeries } from "@/components/DocTrendChart";
-import { api, type Cycle, type Farm, type Grid, type Pond } from "@/lib/api";
-import { getToken } from "@/lib/auth";
-import { METRIC_DEFS, METRIC_GROUPS, metricDef, type MetricGroup } from "@/lib/metrics";
+import { TrendChart, type ChartEvent, type ChartSeries, type Layers, type Pt, type Target } from "@/components/trends/TrendChart";
+import { Banner, Loading } from "@/components/ui/Field";
+import { Icon } from "@/components/ui/Icon";
+import { PageColumn, PageHeader } from "@/components/ui/PageHeader";
+import { Segmented, Toggle } from "@/components/ui/Section";
+import { api, type Cycle, type DayView, type Farm, type Grid, type Pond, type TrendSeries } from "@/lib/api";
+import { byStartDesc, currentCycle, cycleLabel, statusLabel, targetDoc } from "@/lib/cycles";
+import { addDays, daysBetween, docFor, isoForDoc, longDate, shortDate, todayIso, weekday } from "@/lib/dates";
+import { METRIC_DEFS, METRIC_GROUPS, backendMetric, metricDef } from "@/lib/metrics";
+import { cumulativeFeed } from "@/lib/feed";
+import { moonOn } from "@/lib/moon";
+import { num } from "@/lib/num";
+import { useRequireUser } from "@/lib/session";
 
-const CYCLE_COLORS = [
-  "#0ea5a4",
-  "#6366f1",
-  "#f59e0b",
-  "#ef4444",
-  "#8b5cf6",
-  "#0891b2",
-  "#65a30d",
-  "#db2777",
-];
-const METRIC_DASHES: (string | undefined)[] = [undefined, "6 3", "2 3", "10 4 2 4", "1 3"];
+const PALETTE = ["#2DD4BF", "#FBBF24", "#C084FC", "#38BDF8", "#F472B6", "#A3E635", "#FB923C", "#F87171"];
+const MAX_PARAMS = 8;
+const MAX_COMPARES = 3;
+const DEFAULT_METRICS = ["abw_g", "daily_feed_kg", "adg_g_per_day"];
+const GROUP_LABEL: Record<string, string> = {
+  "Daily metrics": "Feed & growth",
+  "Water parameters": "Water",
+  "Plankton & Bacteria": "Plankton & bacteria",
+  Weather: "Weather",
+};
+const dashFor = (age: number) => (age <= 0 ? "" : age === 1 ? "6 4" : "2 4");
+const opacityFor = (age: number) => (age <= 0 ? 1 : age === 1 ? 0.75 : 0.55);
 
-const PRESETS: { label: string; metrics: string[] }[] = [
-  { label: "pH am vs pm", metrics: ["ph_am", "ph_pm"] },
-  { label: "DO am vs pm", metrics: ["do_am", "do_pm"] },
-  { label: "Clarity am vs pm", metrics: ["water_clarity_am", "water_clarity_pm"] },
-  { label: "Growth", metrics: ["abw_g", "adg_g_per_day"] },
-  { label: "Feed vs FCR", metrics: ["daily_feed_kg", "fcr"] },
-  { label: "Air temp min/avg/max", metrics: ["temp_min_c", "temp_mean_c", "temp_max_c"] },
-  { label: "Sun vs rain", metrics: ["shortwave_radiation_sum_mj", "precipitation_mm"] },
-];
+type Range = "7d" | "30d" | "cycle" | "all";
 
-/**
- * Weather is cached 16 days ahead, so the trend window has to reach past today
- * for an open cycle - otherwise the forecast half of the series is fetched but
- * never asked for.
- */
-const FORECAST_HORIZON_DAYS = 16;
-
-const SMOOTH_OPTIONS = [
-  { value: 1, label: "Raw" },
-  { value: 3, label: "3-day" },
-  { value: 7, label: "7-day" },
-];
-
-type DocPoint = { doc: number; value: number; isFuture: boolean };
-type DocRange = { from: number; to: number };
-type DocRangeDraft = { from: string; to: string };
-
-const FARM_STORAGE_KEY = "trends-last-farm";
-
-function todayIso() {
-  return format(new Date(), "yyyy-MM-dd");
-}
-
-function horizonIso() {
-  return format(addDays(new Date(), FORECAST_HORIZON_DAYS), "yyyy-MM-dd");
-}
-
-/** Last date worth asking for: a finished cycle stops, an open one looks ahead. */
-function trendEndDate(cycle: Cycle) {
-  if (cycle.actual_end_date) return cycle.actual_end_date;
-  if (cycle.status !== "active") {
-    return minIso(cycle.planned_end_date ?? todayIso(), todayIso());
-  }
-  return maxIso(cycle.planned_end_date ?? todayIso(), horizonIso());
-}
-
-function maxIso(a: string, b: string) {
-  return a >= b ? a : b;
-}
-
-function minIso(a: string, b: string) {
-  return a <= b ? a : b;
-}
-
-function seriesKey(cycleId: string, metric: string) {
-  return `${cycleId}:${metric}`;
-}
-
-function parseList(value: string | null): string[] {
-  return value ? value.split(",").filter(Boolean) : [];
-}
-
-function parseDocBound(value: string) {
-  if (value.trim() === "") return null;
-  const parsed = Number(value);
-  return Number.isInteger(parsed) && parsed >= 0 ? parsed : null;
-}
-
-export default function TrendsComparePage() {
-  return (
-    <Suspense fallback={<main className="p-6 text-sm text-slate-500">Loading...</main>}>
-      <TrendsCompare />
-    </Suspense>
-  );
-}
-
-function TrendsCompare() {
-  const router = useRouter();
-  const search = useSearchParams();
-
-  const [authChecked, setAuthChecked] = useState(false);
-  const [dataLoaded, setDataLoaded] = useState(false);
+export default function TrendsPage() {
+  const user = useRequireUser();
+  const today = todayIso();
+  const [farm, setFarm] = useState<Farm | null>(null);
   const [farms, setFarms] = useState<Farm[]>([]);
-  const [farmId, setFarmId] = useState("");
   const [grids, setGrids] = useState<Grid[]>([]);
   const [ponds, setPonds] = useState<Pond[]>([]);
   const [cycles, setCycles] = useState<Cycle[]>([]);
-  const farmInitialized = useRef(false);
-  const scrolledToSelection = useRef(false);
-  const pickerRef = useRef<HTMLDivElement>(null);
+  const [primaryId, setPrimaryId] = useState<string | null>(null);
+  const [compares, setCompares] = useState<string[]>([]);
+  const [params, setParams] = useState<string[]>(DEFAULT_METRICS);
+  const [axis, setAxis] = useState<"doc" | "date">("doc");
+  const [range, setRange] = useState<Range>("cycle");
+  const [custom, setCustom] = useState<[number, number] | null>(null);
+  const [layers, setLayers] = useState<Layers>({ targets: true, safe: true, events: true, molt: false, gaps: false });
+  const [overlay, setOverlay] = useState(false);
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const [compareOpen, setCompareOpen] = useState(false);
+  const [viewOpen, setViewOpen] = useState(false);
+  const [trends, setTrends] = useState<Record<string, TrendSeries>>({});
+  // Today's day view per running cycle, for the "fed so far" cumulative feed point.
+  const [todayViews, setTodayViews] = useState<Record<string, DayView>>({});
+  const [error, setError] = useState<string | null>(null);
+  const requested = useRef(new Set<string>());
 
-  const [selectedCycleIds, setSelectedCycleIds] = useState<string[]>(() =>
-    parseList(search.get("cycles")),
-  );
-  const [selectedMetrics, setSelectedMetrics] = useState<string[]>(() => {
-    const fromUrl = parseList(search.get("metrics"));
-    return fromUrl.length ? fromUrl : ["daily_feed_kg"];
-  });
-
-  const [pointsByKey, setPointsByKey] = useState<Record<string, DocPoint[]>>({});
-  const [loadingKeys, setLoadingKeys] = useState<string[]>([]);
-  const inFlight = useRef(new Set<string>());
-
-  const [hidden, setHidden] = useState<Set<string>>(new Set());
-  // Keep what the user is typing separate from the last valid chart range.
-  // This lets an input be temporarily blank (or otherwise invalid) without
-  // snapping it to a fallback value or sending a bad domain to Recharts.
-  const [docRange, setDocRange] = useState<DocRange | null>(null);
-  const [docRangeDraft, setDocRangeDraft] = useState<DocRangeDraft | null>(null);
-  const [smoothWindow, setSmoothWindow] = useState(1);
-  const [normalize, setNormalize] = useState(false);
-  const [connectNulls, setConnectNulls] = useState(true);
-  // On by default: the weather forecast is only ever future, so hiding it would
-  // make the Weather group look empty for the days that matter most.
-  const [includePredicted, setIncludePredicted] = useState(true);
-  const [pickerOpen, setPickerOpen] = useState(true);
-  const [cycleFilter, setCycleFilter] = useState("");
-  const [openMetricGroups, setOpenMetricGroups] = useState<MetricGroup[]>([...METRIC_GROUPS]);
-
+  // Resolve the farm (URL, the linked cycle's farm, last used, first) and load its ponds and cycles.
   useEffect(() => {
-    if (!getToken()) {
-      router.replace("/login");
-      return;
-    }
-    api.listFarms().then((farms) => {
-      setFarms(farms);
-      setAuthChecked(true);
-    });
-  }, [router]);
-
-  // Everything the account can see is loaded once, unfiltered. The farm
-  // selector then only filters the picker, so a deep link to a cycle resolves
-  // no matter which farm it belongs to.
-  useEffect(() => {
-    if (!authChecked) return;
-    let cancelled = false;
-    Promise.all([api.listGrids(), api.listPonds(), api.listCycles()]).then(([g, p, c]) => {
-      if (cancelled) return;
-      setGrids(g);
-      setPonds(p);
-      setCycles(c);
-      setDataLoaded(true);
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [authChecked]);
-
-  // Keep the URL in sync so a comparison can be bookmarked or shared.
-  useEffect(() => {
-    const params = new URLSearchParams();
-    if (selectedCycleIds.length) params.set("cycles", selectedCycleIds.join(","));
-    if (selectedMetrics.length) params.set("metrics", selectedMetrics.join(","));
-    const query = params.toString();
-    router.replace(query ? `/trends?${query}` : "/trends", { scroll: false });
-  }, [selectedCycleIds, selectedMetrics, router]);
-
-  const cycleById = useMemo(() => new Map(cycles.map((c) => [c.id, c])), [cycles]);
-  const pondById = useMemo(() => new Map(ponds.map((p) => [p.id, p])), [ponds]);
-  const gridById = useMemo(() => new Map(grids.map((g) => [g.id, g])), [grids]);
-
-  const farmIdOfCycle = useCallback(
-    (cycleId: string) => {
-      const pond = pondById.get(cycleById.get(cycleId)?.pond_id ?? "");
-      return pond ? gridById.get(pond.grid_id)?.farm_id : undefined;
-    },
-    [cycleById, pondById, gridById],
-  );
-
-  // Land on the farm that actually holds the selected cycle, then on the farm
-  // last used on this page. farms[0] is only the final fallback.
-  useEffect(() => {
-    if (farmInitialized.current || !dataLoaded || !farms.length) return;
-    farmInitialized.current = true;
-
-    const known = (id: string | null | undefined) => Boolean(id && farms.some((f) => f.id === id));
-    const fromSelection = selectedCycleIds.map(farmIdOfCycle).find(known);
-    const remembered = window.localStorage.getItem(FARM_STORAGE_KEY);
-
-    setFarmId(known(fromSelection) ? fromSelection! : known(remembered) ? remembered! : farms[0].id);
-  }, [dataLoaded, farms, selectedCycleIds, farmIdOfCycle]);
-
-  useEffect(() => {
-    if (farmId) window.localStorage.setItem(FARM_STORAGE_KEY, farmId);
-  }, [farmId]);
-
-  // Bring the deep-linked cycle into view inside the scrollable picker.
-  useEffect(() => {
-    if (scrolledToSelection.current || !farmId || !selectedCycleIds.length) return;
-    const target = pickerRef.current?.querySelector(`[data-cycle-id="${selectedCycleIds[0]}"]`);
-    if (!target) return;
-    scrolledToSelection.current = true;
-    target.scrollIntoView({ block: "nearest" });
-  }, [farmId, selectedCycleIds, cycles]);
-
-  // Fetch every missing (cycle, metric) pair. Results are cached by key so
-  // toggling a metric off and back on does not refetch.
-  useEffect(() => {
-    const wanted: string[] = [];
-    for (const cycleId of selectedCycleIds) {
-      if (!cycleById.has(cycleId)) continue;
-      for (const metric of selectedMetrics) {
-        const key = seriesKey(cycleId, metric);
-        if (!(key in pointsByKey) && !inFlight.current.has(key)) wanted.push(key);
+    if (!user) return;
+    const q = new URLSearchParams(window.location.search);
+    const wantCycle = q.get("cycle");
+    const metrics = (q.get("metrics") ?? "").split(",").filter((m) => METRIC_DEFS.some((d) => d.key === m));
+    if (metrics.length) setParams(metrics.slice(0, MAX_PARAMS));
+    const cmp = (q.get("compare") ?? "").split(",").filter(Boolean).slice(0, MAX_COMPARES);
+    (async () => {
+      const [list, allGrids] = await Promise.all([api.listFarms(), api.listGrids()]);
+      setFarms(list);
+      let farmId = q.get("farm");
+      if (!farmId && wantCycle) {
+        const c = await api.getCycle(wantCycle).catch(() => null);
+        const p = c ? await api.getPond(c.pond_id).catch(() => null) : null;
+        farmId = allGrids.find((g) => g.id === p?.grid_id)?.farm_id ?? null;
       }
-    }
-    if (!wanted.length) return;
-
-    wanted.forEach((key) => inFlight.current.add(key));
-    setLoadingKeys(Array.from(inFlight.current));
-
-    wanted.forEach(async (key) => {
-      const [cycleId, metric] = key.split(":");
+      let last: string | null = null;
       try {
-        const cycle = cycleById.get(cycleId);
-        if (!cycle) throw new Error("Cycle went away");
-
-        const from = cycle.start_date;
-        const to = maxIso(from, trendEndDate(cycle));
-
-        const result = await api.getCycleTrend(cycleId, metric, from, to);
-        const start = parseISO(from);
-        const points: DocPoint[] = [];
-        for (const point of result.points) {
-          if (point.value === null) continue;
-          const value = Number(point.value);
-          if (!Number.isFinite(value)) continue;
-          points.push({
-            doc: differenceInCalendarDays(parseISO(point.date), start) + 1,
-            value,
-            isFuture: point.is_future,
-          });
-        }
-        setPointsByKey((current) => ({ ...current, [key]: points }));
+        last = JSON.parse(window.localStorage.getItem("shrimpy.farm") ?? "null");
       } catch {
-        setPointsByKey((current) => ({ ...current, [key]: [] }));
-      } finally {
-        inFlight.current.delete(key);
-        setLoadingKeys(Array.from(inFlight.current));
+        // ignore
       }
-    });
-  }, [selectedCycleIds, selectedMetrics, cycleById, pointsByKey]);
+      const f = list.find((x) => x.id === farmId) ?? list.find((x) => x.id === last) ?? list[0];
+      if (!f) return;
+      setFarm(f);
+      const [ps, cs] = await Promise.all([api.listPonds(undefined, f.id), api.listCycles(f.id)]);
+      setGrids(allGrids.filter((g) => g.farm_id === f.id));
+      setPonds(ps);
+      setCycles(cs);
+      const primary = cs.find((c) => c.id === wantCycle) ?? ps.map((p) => currentCycle(cs, p.id)).find(Boolean) ?? [...cs].sort(byStartDesc)[0];
+      setPrimaryId(primary?.id ?? null);
+      setCompares(cmp.filter((id) => id !== primary?.id && cs.some((c) => c.id === id)));
+    })().catch((e: Error) => setError(e.message));
+  }, [user]);
 
-  const cycleLabels = useMemo(() => {
-    const labels = new Map<string, string>();
-    const counts = new Map<string, number>();
+  // Mirror the view in the URL so it can be shared.
+  useEffect(() => {
+    if (!farm || !primaryId) return;
+    const q = new URLSearchParams({ farm: farm.id, cycle: primaryId, metrics: params.join(",") });
+    if (compares.length) q.set("compare", compares.join(","));
+    window.history.replaceState(null, "", `/trends?${q.toString()}`);
+  }, [farm, primaryId, params, compares]);
 
-    for (const cycleId of selectedCycleIds) {
-      const cycle = cycleById.get(cycleId);
-      if (!cycle) continue;
-      const pond = pondById.get(cycle.pond_id);
-      const short = `${pond?.name ?? "Pond"} - ${cycle.name}`;
-      counts.set(short, (counts.get(short) ?? 0) + 1);
-    }
+  const pondOrder = useMemo(
+    () => [...ponds].sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true })),
+    [ponds],
+  );
+  const pondColor = (pondId: string) => PALETTE[Math.max(0, pondOrder.findIndex((p) => p.id === pondId)) % PALETTE.length];
+  const cyclesOf = (pondId: string) => cycles.filter((c) => c.pond_id === pondId).sort(byStartDesc);
+  const ageOf = (c: Cycle) => cyclesOf(c.pond_id).findIndex((x) => x.id === c.id);
+  const pondName = (id: string) => ponds.find((p) => p.id === id)?.name ?? "?";
 
-    for (const cycleId of selectedCycleIds) {
-      const cycle = cycleById.get(cycleId);
-      if (!cycle) continue;
-      const pond = pondById.get(cycle.pond_id);
-      const grid = pond ? gridById.get(pond.grid_id) : undefined;
-      const short = `${pond?.name ?? "Pond"} - ${cycle.name}`;
-      labels.set(cycleId, (counts.get(short) ?? 0) > 1 ? `${grid?.name ?? "?"}/${short}` : short);
-    }
-
-    return labels;
-  }, [selectedCycleIds, cycleById, pondById, gridById]);
-
-  const series = useMemo<ChartSeries[]>(() => {
-    const multiCycle = selectedCycleIds.length > 1;
-    const multiMetric = selectedMetrics.length > 1;
-    const list: ChartSeries[] = [];
-
-    selectedCycleIds.forEach((cycleId, cycleIndex) => {
-      if (!cycleById.has(cycleId)) return;
-      selectedMetrics.forEach((metric, metricIndex) => {
-        const def = metricDef(metric);
-        const key = seriesKey(cycleId, metric);
-        const values = new Map<number, number>();
-        let futureFromDoc: number | null = null;
-        for (const point of pointsByKey[key] ?? []) {
-          if (point.isFuture) {
-            if (!includePredicted) continue;
-            if (futureFromDoc == null || point.doc < futureFromDoc) futureFromDoc = point.doc;
-          }
-          values.set(point.doc, point.value);
-        }
-
-        // One cycle: colour tells the metrics apart. One metric: colour tells
-        // the cycles apart. Both: colour is the cycle, dash is the metric.
-        const colorIndex = multiCycle ? cycleIndex : metricIndex;
-        const dash = multiCycle && multiMetric ? METRIC_DASHES[metricIndex % METRIC_DASHES.length] : undefined;
-
-        list.push({
-          id: key,
-          cycleLabel: cycleLabels.get(cycleId) ?? "Cycle",
-          metricLabel: def.label,
-          unit: def.unit,
-          axisGroup: def.axisGroup,
-          color: CYCLE_COLORS[colorIndex % CYCLE_COLORS.length],
-          dash,
-          values,
-          futureFromDoc,
-        });
-      });
-    });
-
-    return list;
-  }, [selectedCycleIds, selectedMetrics, cycleById, pointsByKey, includePredicted, cycleLabels]);
-
-  const maxDoc = useMemo(() => {
-    let max = 0;
-    for (const s of series) {
-      if (hidden.has(s.id)) continue;
-      for (const doc of s.values.keys()) if (doc > max) max = doc;
-    }
-    return max;
-  }, [series, hidden]);
-
-  const docFrom = docRange?.from ?? (maxDoc > 0 ? 1 : 0);
-  const docTo = docRange?.to ?? Math.max(maxDoc, docFrom);
-  const docRangeInputs = docRangeDraft ?? {
-    from: String(docFrom),
-    to: String(docTo),
+  const primary = cycles.find((c) => c.id === primaryId) ?? null;
+  const lines = primary ? [primary, ...compares.map((id) => cycles.find((c) => c.id === id)).filter((c): c is Cycle => !!c)] : [];
+  const endFor = (c: Cycle) => {
+    if (c.actual_end_date) return c.actual_end_date;
+    const planned = c.planned_end_date && c.planned_end_date > today ? c.planned_end_date : null;
+    const ahead = addDays(today, 16); // predictions and weather forecast reach ahead
+    return planned && planned > ahead ? planned : ahead;
   };
-  const draftFrom = parseDocBound(docRangeInputs.from);
-  const draftTo = parseDocBound(docRangeInputs.to);
-  const docRangeInvalid =
-    draftFrom == null ||
-    draftTo == null ||
-    draftFrom > draftTo ||
-    draftTo > maxDoc;
-  const sliderMax = Math.max(maxDoc, docTo, 1);
 
-  function updateDocRangeInputs(next: DocRangeDraft) {
-    setDocRangeDraft(next);
-    const from = parseDocBound(next.from);
-    const to = parseDocBound(next.to);
-    if (from == null || to == null || from > to || to > maxDoc) return;
-    setDocRange({ from, to });
-  }
-
-  function updateDocRange(from: number, to: number) {
-    setDocRangeDraft({ from: String(from), to: String(to) });
-    setDocRange({ from, to });
-  }
-
-  function resetDocRange() {
-    setDocRangeDraft(null);
-    setDocRange(null);
-  }
-
-  const toggleCycle = useCallback((cycleId: string) => {
-    setSelectedCycleIds((current) =>
-      current.includes(cycleId)
-        ? current.filter((id) => id !== cycleId)
-        : [...current, cycleId],
+  // Fetch every (cycle, metric) pair once.
+  useEffect(() => {
+    lines.forEach((c) =>
+      params.forEach((m) => {
+        const key = `${c.id}|${m}`;
+        if (requested.current.has(key)) return;
+        requested.current.add(key);
+        api
+          .getCycleTrend(c.id, backendMetric(m), c.start_date, endFor(c))
+          .then((t) => setTrends((all) => ({ ...all, [key]: t })))
+          .catch(() => requested.current.delete(key));
+      }),
     );
-  }, []);
+    if (params.includes("cumulative_feed")) {
+      lines
+        .filter((c) => !c.actual_end_date && !todayViews[c.id])
+        .forEach((c) => api.getCycleDay(c.id, today).then((d) => setTodayViews((v) => ({ ...v, [c.id]: d }))).catch(() => undefined));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [primaryId, compares.join(","), params.join(",")]);
 
-  const toggleMetric = useCallback((metric: string) => {
-    setSelectedMetrics((current) =>
-      current.includes(metric) ? current.filter((m) => m !== metric) : [...current, metric],
-    );
-  }, []);
+  if (!user || (!farm && !error)) return <Loading label="Loading trends…" />;
 
-  const toggleSeries = useCallback((id: string) => {
-    setHidden((current) => {
-      const next = new Set(current);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
+  const xOf = (c: Cycle, iso: string) => (axis === "doc" ? docFor(c.start_date, iso) : daysBetween(today, iso));
+  const onePond = new Set(lines.map((c) => c.pond_id)).size === 1;
+  const oneCycle = lines.length === 1;
+
+  const series: ChartSeries[] = [];
+  params.forEach((m, mi) =>
+    lines.forEach((c) => {
+      const t = trends[`${c.id}|${m}`];
+      const age = ageOf(c);
+      const def = metricDef(m);
+      const todayView = m === "cumulative_feed" ? todayViews[c.id] : undefined;
+      const points: Pt[] = (t?.points ?? [])
+        .map((p) => (todayView && p.date === today ? { ...p, value: String(cumulativeFeed(todayView)) } : p))
+        .filter((p) => Number.isFinite(num(p.value)))
+        .map((p) => ({ x: xOf(c, p.date), v: num(p.value), future: p.is_future, date: p.date, doc: docFor(c.start_date, p.date), sampling: p.is_sampling_day, harvest: p.is_harvest_day }));
+      const tag = `${pondName(c.pond_id)} · ${cycleLabel(c)}`;
+      const lenDoc = docFor(c.start_date, c.actual_end_date ?? today);
+      series.push({
+        key: `${c.id}|${m}`,
+        metric: m,
+        label: `${def.label} · ${tag}`,
+        short: onePond && oneCycle ? def.label : `${def.label} · ${tag}`,
+        color: onePond && oneCycle ? PALETTE[mi % PALETTE.length] : pondColor(c.pond_id),
+        dash: onePond && oneCycle ? "" : dashFor(age),
+        opacity: onePond && oneCycle ? 1 : opacityFor(age),
+        points,
+        loaded: !!t,
+        whereAt: (x) => {
+          if (axis === "doc") return `${longDate(isoForDoc(c.start_date, x))}${oneCycle ? "" : ` · ${tag}`}`;
+          const d = addDays(today, x);
+          return `${weekday(d)} · ${x === 0 ? "today" : x < 0 ? `${-x}d ago` : `in ${x}d`}`;
+        },
+        coverage: (x) => {
+          const d = axis === "doc" ? isoForDoc(c.start_date, x) : addDays(today, x);
+          const doc = docFor(c.start_date, d);
+          if (doc < 1) return "before";
+          if (c.actual_end_date && doc > lenDoc) return "after";
+          const last = points.at(-1);
+          if (!last || d > last.date) return "ahead";
+          return "in";
+        },
+      });
+    }),
+  );
+  // Several metrics on one pond+cycle but multiple lines: keep colours apart within a lane.
+  if (!(onePond && oneCycle)) {
+    series.forEach((s, i) => {
+      const clash = series.slice(0, i).some((o) => o.color === s.color && o.dash === s.dash && metricDef(o.metric).axisGroup === metricDef(s.metric).axisGroup);
+      if (clash) s.color = PALETTE[(i + 3) % PALETTE.length];
     });
-  }, []);
-
-  function toggleMetricGroup(group: MetricGroup) {
-    setOpenMetricGroups((current) =>
-      current.includes(group) ? current.filter((g) => g !== group) : [...current, group],
-    );
   }
 
-  const gridSections = useMemo(() => {
-    const needle = cycleFilter.trim().toLowerCase();
-    return grids
-      .filter((grid) => grid.farm_id === farmId)
-      .map((grid) => {
-        const gridPonds = ponds
-          .filter((pond) => pond.grid_id === grid.id)
-          .map((pond) => ({
-            pond,
-            cycles: cycles.filter((cycle) => {
-              if (cycle.pond_id !== pond.id) return false;
-              if (!needle) return true;
-              return `${grid.name} ${pond.name} ${cycle.name}`.toLowerCase().includes(needle);
-            }),
-          }))
-          .filter((entry) => entry.cycles.length > 0);
-        return { grid, ponds: gridPonds };
-      })
-      .filter((section) => section.ponds.length > 0);
-  }, [grids, ponds, cycles, cycleFilter, farmId]);
+  // Domain and window.
+  let dMin = Infinity;
+  let dMax = -Infinity;
+  series.forEach((s) => s.points.forEach((p) => ((dMin = Math.min(dMin, p.x)), (dMax = Math.max(dMax, p.x)))));
+  lines.forEach((c) => {
+    dMin = Math.min(dMin, xOf(c, c.start_date));
+    const tdoc = targetDoc(c);
+    if (tdoc) dMax = Math.max(dMax, xOf(c, isoForDoc(c.start_date, tdoc)));
+  });
+  if (!Number.isFinite(dMin)) {
+    dMin = axis === "doc" ? 1 : -30;
+    dMax = axis === "doc" ? 30 : 0;
+  }
+  const primaryRecorded = series.filter((s) => s.key.startsWith(primaryId ?? "")).flatMap((s) => s.points.filter((p) => !p.future).map((p) => p.x));
+  const anchor = primary ? (primaryRecorded.length ? Math.max(...primaryRecorded) : xOf(primary, primary.actual_end_date ?? today)) : dMax;
+  let from: number;
+  let to: number;
+  if (custom) [from, to] = custom;
+  else if (range === "7d") [from, to] = [anchor - 6, anchor];
+  else if (range === "30d") [from, to] = [anchor - 29, anchor];
+  else if (range === "cycle" && primary) {
+    from = xOf(primary, primary.start_date);
+    const tdoc = targetDoc(primary);
+    to = tdoc ? xOf(primary, isoForDoc(primary.start_date, tdoc)) : Math.max(anchor, xOf(primary, primary.actual_end_date ?? today));
+  } else [from, to] = [dMin, dMax];
+  from = Math.max(dMin, from);
+  to = Math.min(dMax, Math.max(to, from + 1));
+  from = Math.round(from);
+  to = Math.round(to);
 
-  if (!authChecked) return <main className="p-6 text-sm text-slate-500">Loading...</main>;
+  const xLabel = (x: number) => (axis === "doc" ? `D${x}` : shortDate(addDays(today, x)));
+  const dateAtX = (x: number) => (axis === "doc" && primary ? isoForDoc(primary.start_date, x) : addDays(today, x));
 
-  const loading = loadingKeys.length > 0;
+  // Targets from the primary cycle's settings.
+  const cfg = primary?.prediction_config;
+  const targets: Target[] = cfg
+    ? [
+        { metric: "abw_g", value: Number(cfg.cycle.maximum_shrimp_size_g), label: `max size ${Number(cfg.cycle.maximum_shrimp_size_g)} g` },
+        { metric: "adg_g_per_day", value: Number(cfg.growth.maximum_adg_g_per_day), label: `max ADG ${Number(cfg.growth.maximum_adg_g_per_day).toFixed(2)}` },
+        { metric: "fcr", value: Number(cfg.growth.target_fcr), label: `target ${Number(cfg.growth.target_fcr).toFixed(2)}` },
+        { metric: "sample_fcr", value: Number(cfg.growth.target_fcr), label: `target ${Number(cfg.growth.target_fcr).toFixed(2)}` },
+        { metric: "feeding_index", value: Number(cfg.growth.maximum_feeding_index), label: `max FI ${Number(cfg.growth.maximum_feeding_index).toFixed(2)}` },
+      ]
+    : [];
+
+  // Events on the primary cycle: sampling and harvest days (flags ride on every trend point).
+  const events: ChartEvent[] = [];
+  if (primary) {
+    const src = series.find((s) => s.key.startsWith(primary.id));
+    const abwMap = new Map((trends[`${primary.id}|abw_g`]?.points ?? []).map((p) => [p.date, num(p.value)]));
+    const hvMap = new Map((trends[`${primary.id}|harvest_biomass_kg`]?.points ?? []).map((p) => [p.date, num(p.value)]));
+    (trends[src?.key ?? ""]?.points ?? []).forEach((p) => {
+      const x = xOf(primary, p.date);
+      if (p.is_sampling_day) events.push({ x, kind: "S", color: "#2DD4BF", text: `Sampling${Number.isFinite(abwMap.get(p.date) ?? NaN) ? ` · ABW ${(abwMap.get(p.date) as number).toFixed(1)} g` : ""}` });
+      if (p.is_harvest_day) events.push({ x, kind: "H", color: "#FBBF24", text: `Harvest${(hvMap.get(p.date) ?? 0) > 0 ? ` · ${Math.round(hvMap.get(p.date) as number).toLocaleString("en-US")} kg` : ""}` });
+    });
+  }
+
+  // Molt windows across the visible range.
+  const moltRanges: [number, number][] = [];
+  if (layers.molt) {
+    let start: number | null = null;
+    for (let x = from; x <= to + 1; x++) {
+      const on = x <= to && moonOn(dateAtX(x)).window !== null;
+      if (on && start === null) start = x;
+      if (!on && start !== null) {
+        moltRanges.push([start, x - 1]);
+        start = null;
+      }
+    }
+  }
+
+  function exportCsv() {
+    const xs = [...new Set(series.flatMap((s) => s.points.map((p) => p.x)))].filter((x) => x >= from && x <= to).sort((a, b) => a - b);
+    const head = [axis === "doc" ? "DOC" : "Date", ...series.map((s) => `${s.label}${metricDef(s.metric).unit ? ` (${metricDef(s.metric).unit})` : ""}`)];
+    const rows = xs.map((x) => [axis === "doc" ? String(x) : addDays(today, x), ...series.map((s) => {
+      const p = s.points.find((q) => q.x === x);
+      return p ? String(p.v) : "";
+    })]);
+    const csv = [head, ...rows].map((r) => r.map((c) => (/[",\n]/.test(c) ? `"${c.replace(/"/g, '""')}"` : c)).join(",")).join("\n");
+    const url = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `trends-${farm?.name ?? "farm"}-${today}.csv`.replace(/\s+/g, "-");
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  const viewLabel = primary ? `${pondName(primary.pond_id)} · ${cycleLabel(primary)}` : "No cycle";
+  const rangeLabel = axis === "doc" ? `DOC ${from} – ${to} · ${to - from + 1} days` : `${shortDate(addDays(today, from))} – ${shortDate(addDays(today, to))}`;
+  const chip = (on: boolean) => (on ? "border-accent bg-accent/[0.12] text-tx-strong" : "border-line-strong bg-ink-800 text-tx-soft");
 
   return (
-    <main className="max-w-5xl mx-auto p-4 sm:p-6 space-y-4">
-      <Link href="/" className="text-sm text-slate-500 hover:underline">
-        &larr; Farm
-      </Link>
-
-      <div className="flex flex-wrap items-baseline justify-between gap-2">
-        <h1 className="text-2xl font-semibold">Trend comparison</h1>
-        {farms.length > 1 ? (
-          <select
-            value={farmId}
-            onChange={(e) => setFarmId(e.target.value)}
-            className="border rounded px-2 py-1 text-sm"
-          >
-            {farms.map((farm) => (
-              <option key={farm.id} value={farm.id}>
-                {farm.name}
-              </option>
-            ))}
-          </select>
-        ) : null}
-      </div>
-
-      <section className="bg-white rounded-lg shadow">
-        <button
-          onClick={() => setPickerOpen((v) => !v)}
-          className="w-full flex items-center justify-between px-4 py-3 text-left"
-        >
-          <span className="font-medium">
-            Cycles
-            <span className="ml-2 text-sm font-normal text-slate-500">
-              {selectedCycleIds.length} selected
+    <PageColumn className="gap-4">
+      <PageHeader
+        eyebrow={
+          <button type="button" onClick={() => setViewOpen((o) => !o)} aria-expanded={viewOpen} className="inline-flex max-w-full items-center gap-1.5 uppercase">
+            <span className="truncate">
+              {farm?.name} · {viewLabel}
             </span>
-          </span>
-          <span className="text-slate-400 text-sm">{pickerOpen ? "hide" : "show"}</span>
-        </button>
+            <Icon name="chevron" size={12} strokeWidth={2.4} className={`shrink-0 transition-transform ${viewOpen ? "rotate-180" : ""}`} />
+          </button>
+        }
+        title="Trends"
+        backHref={farm ? `/?farm=${farm.id}` : "/"}
+      />
+      {error ? <Banner onDismiss={() => setError(null)}>{error}</Banner> : null}
 
-        {pickerOpen ? (
-          <div className="px-4 pb-4 space-y-3">
-            <div className="flex flex-wrap gap-2">
-              <input
-                value={cycleFilter}
-                onChange={(e) => setCycleFilter(e.target.value)}
-                placeholder="Filter grid, pond or cycle"
-                className="flex-1 min-w-[12rem] border rounded px-3 py-1.5 text-sm"
-              />
-              {selectedCycleIds.length ? (
-                <button
-                  onClick={() => setSelectedCycleIds([])}
-                  className="text-sm border px-3 py-1.5 rounded text-slate-600"
-                >
-                  Clear
-                </button>
-              ) : null}
-            </div>
-
-            {gridSections.length === 0 ? (
-              <p className="text-sm text-slate-500">No cycles match.</p>
-            ) : (
-              <div ref={pickerRef} className="space-y-3 max-h-80 overflow-y-auto pr-1">
-                {gridSections.map(({ grid, ponds: gridPonds }) => (
-                  <div key={grid.id}>
-                    <div className="text-xs font-medium uppercase tracking-wide text-slate-400 mb-1">
-                      {grid.name}
-                    </div>
-                    <div className="space-y-1.5">
-                      {gridPonds.map(({ pond, cycles: pondCycles }) => (
-                        <div key={pond.id} className="pl-2 border-l-2 border-slate-100">
-                          <div className="text-xs text-slate-500 mb-1">{pond.name}</div>
-                          <div className="flex flex-wrap gap-1.5">
-                            {pondCycles.map((cycle) => {
-                              const active = selectedCycleIds.includes(cycle.id);
-                              return (
-                                <button
-                                  key={cycle.id}
-                                  data-cycle-id={cycle.id}
-                                  onClick={() => toggleCycle(cycle.id)}
-                                  title={`${cycle.start_date} - ${cycle.actual_end_date ?? cycle.planned_end_date ?? "open"}`}
-                                  className={`text-sm px-2.5 py-1 rounded border ${
-                                    active
-                                      ? "bg-primary text-white border-primary"
-                                      : "bg-white text-slate-700 hover:bg-slate-50"
-                                  }`}
-                                >
-                                  {cycle.name}
-                                  <span
-                                    className={`ml-1.5 text-xs ${active ? "text-teal-100" : "text-slate-400"}`}
-                                  >
-                                    {cycle.start_date.slice(0, 7)}
-                                  </span>
-                                </button>
-                              );
-                            })}
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
+      {viewOpen ? (
+        <div className="flex max-h-[60vh] flex-col gap-3 overflow-y-auto rounded-2xl border border-line bg-ink-800 p-3">
+          {farms.length > 1 ? (
+            <div className="flex flex-col gap-1">
+              <label htmlFor="trend-farm" className="field-label">Farm</label>
+              <select
+                id="trend-farm"
+                value={farm?.id ?? ""}
+                onChange={(e) => window.location.assign(`/trends?farm=${e.target.value}&metrics=${params.join(",")}`)}
+                className="input-sm"
+              >
+                {farms.map((f) => (
+                  <option key={f.id} value={f.id}>{f.name}</option>
                 ))}
-              </div>
-            )}
-          </div>
-        ) : null}
-      </section>
-
-      <section className="bg-white rounded-lg shadow p-4 space-y-3">
-        <div className="flex flex-wrap items-center gap-2">
-          <span className="font-medium mr-1">Parameters</span>
-          {PRESETS.map((preset) => (
-            <button
-              key={preset.label}
-              onClick={() => setSelectedMetrics(preset.metrics)}
-              className="text-xs px-2 py-1 rounded-full border border-slate-200 text-slate-600 hover:bg-slate-50"
-            >
-              {preset.label}
-            </button>
+              </select>
+            </div>
+          ) : null}
+          {pondOrder.map((p) => (
+            <div key={p.id} className="flex flex-col gap-1.5">
+              <span className="text-[10px] uppercase tracking-[0.08em] text-tx-faint">
+                {p.name}
+                {grids.length > 1 ? ` · ${grids.find((g) => g.id === p.grid_id)?.name ?? ""}` : ""}
+              </span>
+              {cyclesOf(p.id).map((c, age) => (
+                <button
+                  key={c.id}
+                  type="button"
+                  onClick={() => {
+                    setPrimaryId(c.id);
+                    setCompares([]);
+                    setCustom(null);
+                    setViewOpen(false);
+                  }}
+                  className={`flex items-center gap-2.5 rounded-lg px-2.5 py-2 text-left ${c.id === primaryId ? "bg-accent/[0.12] text-accent" : "text-tx hover:bg-ink-850"}`}
+                >
+                  <svg width="16" height="8" viewBox="0 0 16 8" aria-hidden>
+                    <line x1="1" x2="15" y1="4" y2="4" stroke={pondColor(p.id)} strokeWidth="3" strokeDasharray={dashFor(age)} strokeLinecap="round" />
+                  </svg>
+                  <span className="text-sm font-semibold">{cycleLabel(c)}</span>
+                  <span className="ml-auto font-mono text-[11px] text-tx-faint">
+                    {c.status === "active" ? `current · DOC ${docFor(c.start_date, today)}` : `${statusLabel(c.status).toLowerCase()} · ${docFor(c.start_date, c.actual_end_date ?? today)} days`}
+                  </span>
+                </button>
+              ))}
+            </div>
           ))}
         </div>
+      ) : null}
 
-        {METRIC_GROUPS.map((group) => {
-          const open = openMetricGroups.includes(group);
-          const groupMetrics = METRIC_DEFS.filter((m) => m.group === group);
-          const selectedInGroup = groupMetrics.filter((m) =>
-            selectedMetrics.includes(m.key),
-          ).length;
+      <div className="flex items-center justify-between gap-2">
+        <Segmented label="X axis" size="md" value={axis} onChange={(v) => { setAxis(v); setCustom(null); }} options={[{ value: "doc", label: "DOC" }, { value: "date", label: "Date" }]} />
+        <Segmented
+          label="Range"
+          size="sm"
+          value={custom ? null : range}
+          onChange={(v) => { setRange(v); setCustom(null); }}
+          options={[{ value: "7d", label: "7d" }, { value: "30d", label: "30d" }, { value: "cycle", label: "Cycle" }, { value: "all", label: "All" }]}
+        />
+      </div>
 
-          return (
-            <div key={group}>
-              <button
-                onClick={() => toggleMetricGroup(group)}
-                className="w-full flex items-center justify-between text-left text-xs font-medium text-slate-500 mb-1.5"
-              >
-                <span>
-                  {group}
-                  {selectedInGroup ? (
-                    <span className="ml-1.5 text-primary">({selectedInGroup})</span>
-                  ) : null}
-                </span>
-                <span className="text-slate-400">{open ? "-" : "+"}</span>
-              </button>
-              {open ? (
+      {!primary ? (
+        <div className="rounded-2xl border border-line-soft bg-ink-850 px-4 py-8 text-center text-[13px] text-tx-dim">This farm has no cycles yet.</div>
+      ) : series.length === 0 ? (
+        <div className="rounded-2xl border border-line-soft bg-ink-850 px-4 py-8 text-center text-[13px] text-tx-dim">No charts yet. Add parameters below.</div>
+      ) : (
+        <TrendChart
+          series={series}
+          from={from}
+          to={to}
+          axis={axis}
+          layers={layers}
+          targets={targets}
+          events={events}
+          moltRanges={moltRanges}
+          xLabel={xLabel}
+          overlay={overlay}
+          onToggleOverlay={() => setOverlay((o) => !o)}
+        />
+      )}
+
+      {compares.length && primary ? (
+        <div className="-mt-2 flex flex-wrap gap-1.5">
+          {lines.map((c, i) => (
+            <span key={c.id} className="inline-flex h-[30px] items-center gap-1.5 rounded-full border border-line bg-ink-800 pl-2.5 pr-1">
+              <svg width="16" height="8" viewBox="0 0 16 8" aria-hidden>
+                <line x1="1" x2="15" y1="4" y2="4" stroke={pondColor(c.pond_id)} strokeWidth="3" strokeDasharray={dashFor(ageOf(c))} strokeLinecap="round" />
+              </svg>
+              <span className="whitespace-nowrap text-xs font-semibold text-tx">{pondName(c.pond_id)} {cycleLabel(c)}</span>
+              {i > 0 ? (
+                <button type="button" onClick={() => setCompares((cs) => cs.filter((x) => x !== c.id))} aria-label={`Remove ${pondName(c.pond_id)} ${cycleLabel(c)} from comparison`} className="flex h-[26px] w-[26px] items-center justify-center rounded-full text-tx-dim">
+                  <Icon name="close" size={10} strokeWidth={2.6} />
+                </button>
+              ) : (
+                <span className="w-1.5" />
+              )}
+            </span>
+          ))}
+        </div>
+      ) : null}
+
+      <div className="flex flex-col gap-1.5 rounded-[14px] border border-line bg-ink-800 px-3.5 py-3">
+        <div className="flex justify-between text-[11px] text-tx-dim">
+          <span>Showing</span>
+          <span className="font-mono text-tx">{rangeLabel}</span>
+        </div>
+        <div className="grid grid-cols-[40px_1fr] items-center gap-2">
+          <label htmlFor="rng-from" className="text-[11px] text-tx-dim">From</label>
+          <input id="rng-from" type="range" min={Math.round(dMin)} max={Math.round(dMax)} step={1} value={from} onChange={(e) => setCustom([Math.min(Number(e.target.value), to - 1), to])} className="w-full accent-accent" />
+          <label htmlFor="rng-to" className="text-[11px] text-tx-dim">To</label>
+          <input id="rng-to" type="range" min={Math.round(dMin)} max={Math.round(dMax)} step={1} value={to} onChange={(e) => setCustom([from, Math.max(Number(e.target.value), from + 1)])} className="w-full accent-accent" />
+        </div>
+      </div>
+
+      <section className="overflow-hidden rounded-[14px] border border-line bg-ink-800">
+        <button type="button" onClick={() => setPickerOpen((o) => !o)} aria-expanded={pickerOpen} className="flex w-full items-center gap-2.5 p-3.5 text-left">
+          <div className="flex min-w-0 flex-grow flex-col gap-0.5">
+            <span className="text-sm font-bold text-tx-strong">Add parameters</span>
+            <span className="text-xs text-tx-dim">{params.length} on · tap a parameter to show or hide its chart</span>
+          </div>
+          <Icon name="chevron" size={15} strokeWidth={2.2} className={`shrink-0 text-tx-dim transition-transform ${pickerOpen ? "rotate-180" : ""}`} />
+        </button>
+        {pickerOpen ? (
+          <div className="flex flex-col gap-3 px-3.5 pb-3.5">
+            {METRIC_GROUPS.map((g) => (
+              <div key={g} className="flex flex-col gap-1.5">
+                <span className="text-[10px] uppercase tracking-[0.08em] text-tx-dim">{GROUP_LABEL[g] ?? g}</span>
                 <div className="flex flex-wrap gap-1.5">
-                  {groupMetrics.map((m) => {
-                    const active = selectedMetrics.includes(m.key);
+                  {METRIC_DEFS.filter((d) => d.group === g).map((d) => {
+                    const on = params.includes(d.key);
+                    const idx = series.findIndex((s) => s.metric === d.key);
+                    const disabled = !on && params.length >= MAX_PARAMS;
                     return (
                       <button
-                        key={m.key}
-                        onClick={() => toggleMetric(m.key)}
-                        className={`text-sm px-2.5 py-1 rounded border ${
-                          active
-                            ? "bg-primary text-white border-primary"
-                            : "bg-white text-slate-700 hover:bg-slate-50"
-                        }`}
+                        key={d.key}
+                        type="button"
+                        aria-pressed={on}
+                        disabled={disabled}
+                        onClick={() => setParams((ps) => (on ? ps.filter((x) => x !== d.key) : [...ps, d.key]))}
+                        className={`flex h-9 items-center gap-1.5 rounded-full border px-3 text-[13px] font-semibold disabled:opacity-40 ${chip(on)}`}
                       >
-                        {m.label}
+                        <span className="h-2 w-2 rounded-full" style={{ background: on && idx >= 0 ? series[idx].color : "#3A4843" }} />
+                        {d.label}
                       </button>
                     );
                   })}
                 </div>
-              ) : null}
-            </div>
-          );
-        })}
-      </section>
-
-      <section className="bg-white rounded-lg shadow p-3 flex flex-wrap items-center gap-x-5 gap-y-2 text-sm">
-        <div className="flex flex-wrap items-center gap-1.5">
-          <span className="text-slate-500">DOC</span>
-          <input
-            type="number"
-            aria-label="First day of cycle"
-            aria-invalid={docRangeInvalid}
-            min={0}
-            max={maxDoc}
-            step={1}
-            value={docRangeInputs.from}
-            onChange={(e) =>
-              updateDocRangeInputs({ ...docRangeInputs, from: e.target.value })
-            }
-            className={`w-16 border rounded px-2 py-1 ${
-              docRangeInvalid ? "border-amber-400" : ""
-            }`}
-          />
-          <span className="text-slate-400">to</span>
-          <input
-            type="number"
-            aria-label="Last day of cycle"
-            aria-invalid={docRangeInvalid}
-            min={0}
-            max={maxDoc}
-            step={1}
-            value={docRangeInputs.to}
-            onChange={(e) =>
-              updateDocRangeInputs({ ...docRangeInputs, to: e.target.value })
-            }
-            className={`w-16 border rounded px-2 py-1 ${
-              docRangeInvalid ? "border-amber-400" : ""
-            }`}
-          />
-          {docRange || docRangeDraft ? (
-            <button
-              onClick={resetDocRange}
-              className="text-xs text-primary hover:underline"
-            >
-              reset
-            </button>
-          ) : null}
-          {docRangeInvalid ? (
-            <span className="text-xs text-amber-600">
-              Chart remains at DOC {docFrom}-{docTo} until the range is valid.
-            </span>
-          ) : null}
-        </div>
-
-        <label className="flex items-center gap-1.5">
-          <span className="text-slate-500">Smoothing</span>
-          <select
-            value={smoothWindow}
-            onChange={(e) => setSmoothWindow(Number(e.target.value))}
-            className="border rounded px-2 py-1"
-          >
-            {SMOOTH_OPTIONS.map((option) => (
-              <option key={option.value} value={option.value}>
-                {option.label}
-              </option>
+              </div>
             ))}
-          </select>
-        </label>
+            {params.length >= MAX_PARAMS ? <span className="text-xs text-warn">8 charts max. Turn one off to add another.</span> : null}
+          </div>
+        ) : null}
 
-        <label className="flex items-center gap-1.5">
-          <input
-            type="checkbox"
-            checked={normalize}
-            onChange={(e) => setNormalize(e.target.checked)}
-          />
-          <span className="text-slate-600">Normalize</span>
-        </label>
-
-        <label className="flex items-center gap-1.5">
-          <input
-            type="checkbox"
-            checked={connectNulls}
-            onChange={(e) => setConnectNulls(e.target.checked)}
-          />
-          <span className="text-slate-600">Connect gaps</span>
-        </label>
-
-        <label className="flex items-center gap-1.5">
-          <input
-            type="checkbox"
-            checked={includePredicted}
-            onChange={(e) => setIncludePredicted(e.target.checked)}
-          />
-          <span className="text-slate-600">Include forecast</span>
-        </label>
-
-        <span className="ml-auto text-xs text-slate-400">
-          {loading ? "Loading..." : maxDoc ? `DOC 1-${maxDoc} with data` : "No data"}
-        </span>
-
-        <div className="basis-full grid gap-x-5 gap-y-1 border-t border-slate-100 pt-2 sm:grid-cols-2">
-          <label className="flex items-center gap-2 text-xs text-slate-500">
-            <span className="w-9">Start</span>
-            <input
-              type="range"
-              aria-label="First day of cycle slider"
-              min={0}
-              max={Math.max(docTo, 0)}
-              step={1}
-              value={docFrom}
-              disabled={maxDoc === 0}
-              onChange={(e) => updateDocRange(Number(e.target.value), docTo)}
-              className="min-w-0 flex-1 accent-teal-600"
-            />
-            <span className="w-8 text-right tabular-nums text-slate-700">{docFrom}</span>
-          </label>
-          <label className="flex items-center gap-2 text-xs text-slate-500">
-            <span className="w-9">End</span>
-            <input
-              type="range"
-              aria-label="Last day of cycle slider"
-              min={docFrom}
-              max={sliderMax}
-              step={1}
-              value={docTo}
-              disabled={maxDoc === 0}
-              onChange={(e) => updateDocRange(docFrom, Number(e.target.value))}
-              className="min-w-0 flex-1 accent-teal-600"
-            />
-            <span className="w-8 text-right tabular-nums text-slate-700">{docTo}</span>
-          </label>
+        <div className="border-t border-line">
+          <button type="button" onClick={() => setCompareOpen((o) => !o)} aria-expanded={compareOpen} className="flex w-full items-center gap-2.5 p-3.5 text-left">
+            <div className="flex min-w-0 flex-grow flex-col gap-0.5">
+              <span className="text-sm font-bold text-tx-strong">Compare with</span>
+              <span className="truncate text-xs text-tx-dim">
+                {compares.length
+                  ? `${compares.length} on · ${compares.map((id) => { const c = cycles.find((x) => x.id === id); return c ? `${pondName(c.pond_id)} ${cycleLabel(c)}` : ""; }).join(", ")}`
+                  : "Off · tap to add other ponds or cycles"}
+              </span>
+            </div>
+            <Icon name="chevron" size={15} strokeWidth={2.2} className={`shrink-0 text-tx-dim transition-transform ${compareOpen ? "rotate-180" : ""}`} />
+          </button>
+          {compareOpen ? (
+            <div className="flex flex-col gap-2.5 px-3.5 pb-3.5">
+              {pondOrder.map((p) => (
+                <div key={p.id} className="flex items-start gap-2.5">
+                  <span className="w-[42px] shrink-0 truncate pt-[9px] text-[13px] font-bold" style={{ color: pondColor(p.id) }}>{p.name}</span>
+                  <div className="flex min-w-0 flex-wrap gap-1.5">
+                    {cyclesOf(p.id).map((c, age) => {
+                      const isView = c.id === primaryId;
+                      const on = compares.includes(c.id);
+                      const full = !on && !isView && compares.length >= MAX_COMPARES;
+                      return (
+                        <button
+                          key={c.id}
+                          type="button"
+                          aria-pressed={on || isView}
+                          disabled={isView || full}
+                          onClick={() => setCompares((cs) => (on ? cs.filter((x) => x !== c.id) : [...cs, c.id]))}
+                          className={`flex h-9 items-center gap-[7px] rounded-full border px-[11px] ${isView ? "border-tx-off bg-white/[0.04]" : on ? "border-accent bg-accent/[0.12]" : "border-line-strong bg-ink-850"} ${full ? "opacity-40" : ""}`}
+                        >
+                          <svg width="16" height="8" viewBox="0 0 16 8" aria-hidden>
+                            <line x1="1" x2="15" y1="4" y2="4" stroke={pondColor(p.id)} strokeWidth="3" strokeDasharray={dashFor(age)} strokeLinecap="round" />
+                          </svg>
+                          <span className={`whitespace-nowrap text-xs font-semibold ${isView ? "text-tx-dim" : on ? "text-tx-strong" : "text-tx-soft"}`}>
+                            {cycleLabel(c)}
+                            {isView ? " · viewing" : c.status === "active" ? " · now" : c.status === "crashed" ? " · crashed" : ""}
+                          </span>
+                        </button>
+                      );
+                    })}
+                    {cyclesOf(p.id).length === 0 ? <span className="pt-2 text-xs text-tx-faint">No cycles</span> : null}
+                  </div>
+                </div>
+              ))}
+              {compares.length >= MAX_COMPARES ? <span className="text-xs text-warn">3 comparisons max. Remove one to add another.</span> : null}
+            </div>
+          ) : null}
         </div>
       </section>
 
-      <DocTrendChart
-        series={series}
-        docFrom={docFrom}
-        docTo={docTo}
-        smoothWindow={smoothWindow}
-        normalize={normalize}
-        connectNulls={connectNulls}
-        hidden={hidden}
-        onToggleSeries={toggleSeries}
-      />
-    </main>
+      <section className="flex flex-col gap-2">
+        <h2 className="m-0 text-[13px] font-bold uppercase tracking-[0.08em] text-tx-soft">Context layers</h2>
+        <div className="grid grid-cols-2 gap-2">
+          {(
+            [
+              ["targets", "Targets", "from cycle settings"],
+              ["safe", "Safe ranges", "water, vibrio, total plankton"],
+              ["events", "Events", "sampling, harvest"],
+              ["molt", "Molt windows", "around full & new moon"],
+              ["gaps", "Connect gaps", "join missing readings"],
+            ] as [keyof Layers, string, string][]
+          ).map(([k, label, sub]) => (
+            <div key={k} className={`flex items-center gap-2.5 rounded-xl border bg-ink-800 px-3 py-2.5 ${layers[k] ? "border-accent/50" : "border-line"}`}>
+              <Toggle on={layers[k]} label={label} onChange={(v) => setLayers((l) => ({ ...l, [k]: v }))} />
+              <div className="flex min-w-0 flex-col">
+                <span className="text-[13px] font-semibold text-tx">{label}</span>
+                <span className="truncate text-[10px] text-tx-faint">{sub}</span>
+              </div>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      <button type="button" onClick={exportCsv} disabled={!series.length} className="h-11 rounded-xl border border-line bg-ink-800 text-[13px] font-semibold text-tx disabled:opacity-40">
+        Export CSV
+      </button>
+    </PageColumn>
   );
 }

@@ -19,8 +19,8 @@ export type MetricDef = {
 export const METRIC_DEFS: MetricDef[] = [
   { key: "daily_feed_kg", label: "Daily feed", group: "Daily metrics", unit: "kg", axisGroup: "daily_feed" },
   { key: "feeding_index", label: "Feeding index", group: "Daily metrics", unit: "%", axisGroup: "feeding_index" },
-  { key: "cumulative_feed_start_kg", label: "Cumulative feed (start)", group: "Daily metrics", unit: "kg", axisGroup: "cumulative_feed" },
-  { key: "cumulative_feed_end_kg", label: "Cumulative feed (end)", group: "Daily metrics", unit: "kg", axisGroup: "cumulative_feed" },
+  // Front-end metric: the backend's end-of-day total, except today, which counts only feeds up to now.
+  { key: "cumulative_feed", label: "Cumulative feed", group: "Daily metrics", unit: "kg", axisGroup: "cumulative_feed" },
   { key: "abw_g", label: "ABW", group: "Daily metrics", unit: "g", axisGroup: "abw" },
   { key: "adg_g_per_day", label: "Average daily gain", group: "Daily metrics", unit: "g/day", axisGroup: "adg" },
   { key: "estimated_population", label: "Population", group: "Daily metrics", unit: "pcs", axisGroup: "population" },
@@ -71,6 +71,11 @@ export const METRIC_DEFS: MetricDef[] = [
   { key: "precipitation_hours", label: "Rain hours", group: "Weather", unit: "h", axisGroup: "sunshine" },
   { key: "precipitation_probability_max_pct", label: "Rain chance", group: "Weather", unit: "%", axisGroup: "sky_pct" },
 ];
+
+/** Backend trend metric that feeds a front-end metric (see cumulative_feed). */
+export function backendMetric(key: string): string {
+  return key === "cumulative_feed" ? "cumulative_feed_end_kg" : key;
+}
 
 export const METRIC_GROUPS: MetricGroup[] = [
   "Daily metrics",

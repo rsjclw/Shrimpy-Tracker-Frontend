@@ -1,0 +1,545 @@
+"use client";
+
+import { useEffect, useState } from "react";
+
+import { Banner } from "@/components/ui/Field";
+import { Icon } from "@/components/ui/Icon";
+import { api, type DayView, type Harvest, type Treatment } from "@/lib/api";
+import { daysBetween, docFor, fmt24, hhmm, nowHHMM, valid24 } from "@/lib/dates";
+import { decimalInput, fmtDec, fmtInt, intInput, num, rupiah, signed } from "@/lib/num";
+import type { LogKind } from "./GrowthStats";
+import type { Growth } from "./usePondData";
+
+type Perms = { canAdd: boolean; canManage: boolean };
+
+export type LogsCtx = {
+  cycleId: string;
+  startDate: string;
+  day: DayView;
+  growth: Growth | null;
+  perms: Perms;
+  saveContext: string;
+  userEmail: string;
+  ensureLogId: () => Promise<string>;
+  onSaved: () => void;
+};
+
+const KIND = {
+  sampling: { label: "Sampling", text: "text-accent", border: "border-accent/50" },
+  harvest: { label: "Harvest", text: "text-warn", border: "border-warn/50" },
+  population: { label: "Population", text: "text-violet", border: "border-violet/50" },
+};
+
+type Form = { kind: LogKind; editId?: string; fields: Record<string, string> };
+
+export function canLogKind(perms: Perms, kind: LogKind) {
+  // The backend lets operators add harvests and population counts; the ABW sample lives on the day log, which needs a maintainer.
+  return kind === "sampling" ? perms.canManage : perms.canAdd;
+}
+
+/** Sampling & harvest log for the viewed day. `requested` opens a form from a quick-stat "+" action. */
+export function SamplingHarvestLog({ ctx, requested, onRequestHandled }: { ctx: LogsCtx; requested: LogKind | null; onRequestHandled: () => void }) {
+  const { day, growth, perms } = ctx;
+  const [open, setOpen] = useState(false);
+  const [row, setRow] = useState<string | null>(null);
+  const [form, setForm] = useState<Form | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!requested) return;
+    // Opened from a quick-stat "+" action: expand and start that form once.
+    setOpen(true);
+    startForm(requested);
+    onRequestHandled();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [requested]);
+
+  const doc = (iso: string) => docFor(ctx.startDate, iso);
+  const samplings = (growth?.samplings ?? []).filter((s) => s.date <= day.date);
+  const lastSampling = samplings.at(-1) ?? null;
+  const prevSampling = samplings.filter((s) => s.date < day.date).at(-1) ?? null;
+  const popSeries = growth?.population ?? [];
+  const popIdx = popSeries.findIndex((p) => p.date === day.date);
+  const popBefore = popIdx > 0 ? popSeries[popIdx - 1].value : null;
+  const popToday = popIdx >= 0 ? popSeries[popIdx].value : null;
+  const harvestedSoFar = (growth?.harvests ?? []).filter((h) => h.date <= day.date).reduce((t, h) => t + h.kg, 0);
+
+  type Row = { id: string; kind: LogKind; time: string; summary: string; details: [string, string][]; harvest?: Harvest };
+  const rows: Row[] = [];
+  if (day.abw_g !== null) {
+    const s = day.sampling;
+    rows.push({
+      id: "sampling",
+      kind: "sampling",
+      time: hhmm(day.abw_sample_time) || "—",
+      summary: `ABW ${fmtDec(day.abw_g, 1)} g${s.adg_g_per_day ? ` · ADG ${fmtDec(s.adg_g_per_day, 2)}` : ""}`,
+      details: [
+        ["Since last sampling", prevSampling ? `${daysBetween(prevSampling.date, day.date)} days (DOC ${doc(prevSampling.date)})` : "First sampling"],
+        ["ABW change", s.abw_gain_g ? `${signed(num(s.abw_gain_g), 2)} g` : "—"],
+        ["ADG", s.adg_g_per_day ? `${fmtDec(s.adg_g_per_day, 2)} g/day` : "—"],
+        ["FCR", s.sample_fcr ? fmtDec(s.sample_fcr, 2) : "—"],
+        ["Feed since last", s.feed_since_previous_sample_kg ? `${fmtInt(s.feed_since_previous_sample_kg)} kg` : "—"],
+        ["Biomass", day.metrics.estimated_biomass_kg ? `${fmtInt(day.metrics.estimated_biomass_kg)} kg` : "—"],
+      ],
+    });
+  }
+  day.harvests.forEach((h) => {
+    const kg = num(h.biomass_kg);
+    const abw = num(h.sampled_abw_g);
+    rows.push({
+      id: h.id,
+      kind: "harvest",
+      harvest: h,
+      time: hhmm(h.harvest_time) || "—",
+      summary: `${fmtInt(kg)} kg · ABW ${fmtDec(abw, 1)} g`,
+      details: [
+        ["Revenue", rupiah(h.total_price)],
+        ["Avg price", kg > 0 ? `${rupiah(num(h.total_price) / kg)} /kg` : "—"],
+        ["Size", abw > 0 ? `${Math.round(1000 / abw)} pcs/kg` : "—"],
+        ["Pieces (est.)", `≈ ${fmtInt(h.estimated_count)}`],
+        ["Population after", day.metrics.estimated_population !== null ? fmtInt(day.metrics.estimated_population) : "—"],
+        ["Harvested so far", `${fmtInt(harvestedSoFar)} kg`],
+      ],
+    });
+  });
+  if (popToday !== null && popBefore !== null && popToday !== popBefore && day.harvests.length === 0) {
+    rows.push({
+      id: "population",
+      kind: "population",
+      time: "—",
+      summary: `${fmtInt(popToday)} (${signed(popToday - popBefore)})`,
+      details: [
+        ["Previous estimate", fmtInt(popBefore)],
+        ["Change", `${signed(popToday - popBefore)} (${signed(((popToday - popBefore) / popBefore) * 100, 1)}%)`],
+      ],
+    });
+  }
+
+  function startForm(kind: LogKind, editRow?: Row) {
+    setError(null);
+    const f: Record<string, string> = { time: nowHHMM() };
+    if (kind === "sampling") {
+      f.time = hhmm(day.abw_sample_time) || nowHHMM();
+      f.abw = day.abw_g !== null ? String(num(day.abw_g)) : "";
+    } else if (kind === "harvest") {
+      const h = editRow?.harvest;
+      Object.assign(f, h ? { time: hhmm(h.harvest_time), kg: String(num(h.biomass_kg)), abw: String(num(h.sampled_abw_g)), revenue: String(num(h.total_price)) } : { kg: "", abw: lastSampling ? String(lastSampling.abw) : "", revenue: "" });
+    } else {
+      f.pop = popToday !== null && editRow ? String(popToday) : "";
+    }
+    setForm({ kind, editId: editRow?.id, fields: f });
+  }
+
+  const setField = (k: string, v: string) => setForm((fm) => (fm ? { ...fm, fields: { ...fm.fields, [k]: v } } : fm));
+  const valid = (fm: Form | null) => {
+    if (!fm) return false;
+    const f = fm.fields;
+    if (fm.kind !== "population" && !valid24(f.time)) return false;
+    if (fm.kind === "sampling") return num(f.abw) > 0;
+    if (fm.kind === "harvest") return num(f.kg) > 0 && num(f.abw) > 0 && num(f.revenue) >= 0;
+    return num(f.pop) > 0;
+  };
+
+  async function save() {
+    if (!form || !valid(form)) return;
+    setBusy(true);
+    setError(null);
+    const f = form.fields;
+    try {
+      if (form.kind === "sampling") {
+        await api.upsertCycleDay(ctx.cycleId, day.date, { abw_g: num(f.abw), abw_sample_time: f.time });
+      } else if (form.kind === "harvest") {
+        const body = { harvest_time: f.time, biomass_kg: num(f.kg), sampled_abw_g: num(f.abw), total_price: num(f.revenue) || 0 };
+        if (form.editId) await api.updateHarvest(form.editId, body);
+        else await api.createHarvest(await ctx.ensureLogId(), body);
+      } else {
+        await api.createSample(ctx.cycleId, { date: day.date, population: Math.round(num(f.pop)) });
+      }
+      setForm(null);
+      ctx.onSaved();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Saving failed.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function remove(r: Row) {
+    setBusy(true);
+    setError(null);
+    try {
+      if (r.kind === "sampling") await api.upsertCycleDay(ctx.cycleId, day.date, { abw_g: null, abw_sample_time: null });
+      else if (r.kind === "harvest") await api.deleteHarvest(r.id);
+      setRow(null);
+      ctx.onSaved();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Deleting failed.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  // Live preview of what the entry will mean, like the mockup.
+  const preview: string[] = [];
+  if (form && valid(form)) {
+    const f = form.fields;
+    if (form.kind === "sampling") {
+      if (prevSampling) {
+        const d = daysBetween(prevSampling.date, day.date);
+        const gain = num(f.abw) - prevSampling.abw;
+        preview.push(`${signed(gain, 1)} g in ${d} days → ADG ${(gain / d).toFixed(2)} g/day`);
+      } else preview.push("First sampling of the cycle");
+    } else if (form.kind === "harvest") {
+      const pieces = (num(f.kg) * 1000) / num(f.abw);
+      preview.push(`Size ${Math.round(1000 / num(f.abw))} pcs/kg · ≈ ${fmtInt(pieces)} pcs`);
+      if (num(f.revenue) > 0) preview.push(`Avg price ${rupiah(num(f.revenue) / num(f.kg))} /kg`);
+      const before = popBefore ?? popToday;
+      if (before) preview.push(`Population ${fmtInt(before)} → ${fmtInt(Math.max(0, before - pieces))}`);
+    } else {
+      const before = popBefore ?? popToday;
+      const n = num(f.pop);
+      preview.push(before ? `${fmtInt(before)} → ${fmtInt(n)} (${signed(n - before)}, ${signed(((n - before) / before) * 100, 1)}%)` : "First population estimate");
+    }
+  }
+
+  const summary = [
+    lastSampling ? `sampling ${daysBetween(lastSampling.date, day.date) === 0 ? "today" : `${daysBetween(lastSampling.date, day.date)}d ago`}` : "no sampling yet",
+    harvestedSoFar ? `${fmtInt(harvestedSoFar)} kg harvested` : "",
+  ]
+    .filter(Boolean)
+    .join(" · ");
+
+  const addable = (["sampling", "harvest", "population"] as LogKind[]).filter((k) => canLogKind(perms, k));
+
+  return (
+    <div className="flex flex-col gap-2">
+      <LogHeader
+        icon="scale"
+        tone="warn"
+        title="Sampling & harvest"
+        summary={summary}
+        count={rows.length}
+        open={open}
+        onToggle={() => setOpen((o) => !o)}
+      />
+      {open ? (
+        <div className="flex flex-col gap-1.5">
+          {error ? <Banner onDismiss={() => setError(null)}>{error}</Banner> : null}
+          {rows.map((r) => {
+            const isOpen = row === r.id;
+            const k = KIND[r.kind];
+            const editable = perms.canManage;
+            return (
+              <div key={r.id} className={`rounded-[10px] border bg-ink-850 ${isOpen ? k.border : "border-ink-850"}`}>
+                <button type="button" onClick={() => setRow(isOpen ? null : r.id)} aria-expanded={isOpen} aria-label={`${k.label} details`} className="flex w-full items-center gap-2 px-[11px] py-[9px] text-left">
+                  <span className={`shrink-0 rounded-full border border-current px-[7px] py-0.5 text-[9px] font-bold uppercase tracking-[0.06em] ${k.text}`}>{k.label}</span>
+                  <span className="shrink-0 font-mono text-xs text-tx-muted">{r.time}</span>
+                  <span className="min-w-0 flex-grow truncate text-right font-mono text-xs font-semibold text-tx">{r.summary}</span>
+                  <Icon name="chevron" size={14} strokeWidth={2.2} className={`shrink-0 text-tx-faint transition-transform ${isOpen ? "rotate-180" : ""}`} />
+                </button>
+                {isOpen ? (
+                  <div className="flex flex-col gap-2 px-[11px] pb-[11px]">
+                    <div className="grid grid-cols-2 gap-1.5">
+                      {r.details.map(([dk, dv]) => (
+                        <div key={dk} className="flex min-w-0 flex-col gap-0.5 rounded-lg bg-ink-800 px-[9px] py-[7px]">
+                          <span className="text-[9px] uppercase tracking-[0.05em] text-tx-faint">{dk}</span>
+                          <span className="truncate font-mono text-xs font-semibold text-tx">{dv}</span>
+                        </div>
+                      ))}
+                    </div>
+                    {editable ? (
+                      <div className="flex justify-end gap-1.5">
+                        {r.kind !== "population" ? (
+                          <button type="button" disabled={busy} onClick={() => remove(r)} className="rounded-md bg-ink-800 px-2.5 py-[5px] text-[11px] font-semibold text-bad">
+                            Delete
+                          </button>
+                        ) : null}
+                        <button type="button" onClick={() => startForm(r.kind, r)} className="rounded-md bg-ink-800 px-2.5 py-[5px] text-[11px] font-semibold text-accent">
+                          Edit
+                        </button>
+                      </div>
+                    ) : null}
+                  </div>
+                ) : null}
+              </div>
+            );
+          })}
+          {rows.length === 0 && !form ? <div className="px-0.5 py-1 text-xs text-tx-faint">Nothing logged on this day.</div> : null}
+
+          {form ? (
+            <div className="flex flex-col gap-2.5 rounded-xl border border-accent bg-ink-850 p-3">
+              <div className="flex flex-col gap-0.5">
+                <span className="text-[13px] font-bold text-tx-strong">
+                  {form.editId ? "Edit" : "New"} {KIND[form.kind].label.toLowerCase()}
+                </span>
+                <span className="font-mono text-[10px] text-tx-muted">Saving to {ctx.saveContext}</span>
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                {form.kind !== "population" ? <FormField cycleId={ctx.cycleId} id="time" label="Time" value={form.fields.time} mode="numeric" placeholder="HH:MM" onChange={(v) => setField("time", fmt24(v))} /> : null}
+                {form.kind === "sampling" ? <FormField cycleId={ctx.cycleId} id="abw" label="ABW (g)" value={form.fields.abw} mode="decimal" placeholder="0.0" onChange={(v) => setField("abw", decimalInput(v, 2))} /> : null}
+                {form.kind === "harvest" ? (
+                  <>
+                    <FormField cycleId={ctx.cycleId} id="kg" label="Biomass (kg)" value={form.fields.kg} mode="decimal" placeholder="0" onChange={(v) => setField("kg", decimalInput(v, 1))} />
+                    <FormField cycleId={ctx.cycleId} id="abw" label="ABW (g)" value={form.fields.abw} mode="decimal" placeholder="0.0" onChange={(v) => setField("abw", decimalInput(v, 2))} />
+                    <FormField cycleId={ctx.cycleId} id="revenue" label="Revenue (Rp)" value={form.fields.revenue} mode="numeric" placeholder="0" onChange={(v) => setField("revenue", intInput(v))} />
+                  </>
+                ) : null}
+                {form.kind === "population" ? <FormField cycleId={ctx.cycleId} id="pop" label="New population" value={form.fields.pop} mode="numeric" placeholder="0" onChange={(v) => setField("pop", intInput(v))} /> : null}
+              </div>
+              {preview.length ? (
+                <div className="flex flex-col gap-[3px]">
+                  {preview.map((p) => (
+                    <span key={p} className="font-mono text-[11px] text-accent">
+                      {p}
+                    </span>
+                  ))}
+                </div>
+              ) : null}
+              <div className="flex justify-end gap-1.5">
+                <button type="button" onClick={() => setForm(null)} className="rounded-md bg-ink-800 px-3 py-1.5 text-xs font-semibold text-tx-muted">
+                  Cancel
+                </button>
+                <button type="button" onClick={save} disabled={!valid(form) || busy} className="rounded-md bg-accent px-3.5 py-1.5 text-xs font-bold text-accent-ink disabled:opacity-40">
+                  {busy ? "Saving…" : "Save"}
+                </button>
+              </div>
+            </div>
+          ) : null}
+
+          {!form && addable.length ? (
+            <div className="grid gap-1.5" style={{ gridTemplateColumns: `repeat(${addable.length}, minmax(0, 1fr))` }}>
+              {addable.map((k) => (
+                <button
+                  key={k}
+                  type="button"
+                  onClick={() => startForm(k)}
+                  className={`rounded-lg border border-dashed border-line-dash px-1 py-[9px] text-center text-xs font-semibold ${k === "sampling" ? "text-accent" : k === "harvest" ? "text-warn" : "text-violet"}`}
+                >
+                  + {KIND[k].label}
+                </button>
+              ))}
+            </div>
+          ) : null}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function FormField({ cycleId, id, label, value, mode, placeholder, onChange }: { cycleId: string; id: string; label: string; value: string; mode: "numeric" | "decimal"; placeholder: string; onChange: (v: string) => void }) {
+  const fid = `${cycleId}-log-${id}`;
+  return (
+    <div className="flex min-w-0 flex-col gap-1">
+      <label htmlFor={fid} className="text-[10px] uppercase tracking-[0.05em] text-tx-faint">
+        {label}
+      </label>
+      <input
+        id={fid}
+        inputMode={mode}
+        placeholder={placeholder}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        className="w-full rounded-md border border-line bg-ink-800 px-2 py-[7px] font-mono text-[13px] font-semibold text-tx-strong outline-none focus:border-accent"
+      />
+    </div>
+  );
+}
+
+// ---------------- Treatments ----------------
+
+export function TreatmentsLog({ ctx, kindLabel }: { ctx: LogsCtx; kindLabel: "today" | "on this day" }) {
+  const { day, perms } = ctx;
+  const [open, setOpen] = useState(false);
+  const [row, setRow] = useState<string | null>(null);
+  const [form, setForm] = useState<{ editId?: string; text: string; time: string; worker: string } | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const list = [...day.treatments].sort((a, b) => a.treatment_time.localeCompare(b.treatment_time));
+  const lastWorker = [...list].reverse().find((t) => t.worker)?.worker ?? ctx.userEmail;
+
+  function start(t?: Treatment) {
+    setError(null);
+    setForm(t ? { editId: t.id, text: t.action, time: hhmm(t.treatment_time), worker: t.worker ?? "" } : { text: "", time: nowHHMM(), worker: lastWorker });
+  }
+
+  const canSave = !!form && form.text.trim() !== "" && valid24(form.time);
+
+  async function save() {
+    if (!form || !canSave) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const body = { treatment_time: form.time, action: form.text.trim(), worker: form.worker.trim() || undefined };
+      if (form.editId) await api.updateTreatment(form.editId, { ...body, worker: body.worker ?? null });
+      else await api.createTreatment(await ctx.ensureLogId(), body);
+      setForm(null);
+      ctx.onSaved();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Saving failed.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function remove(id: string) {
+    setBusy(true);
+    try {
+      await api.deleteTreatment(id);
+      setRow(null);
+      ctx.onSaved();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Deleting failed.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const summary = list.length
+    ? `${list.length} treatment${list.length === 1 ? "" : "s"} ${kindLabel} · last ${hhmm(list.at(-1)!.treatment_time)}`
+    : `Nothing logged ${kindLabel}`;
+
+  return (
+    <div className="flex flex-col gap-2">
+      <LogHeader icon="flask" tone="accent" title="Treatments" summary={summary} count={list.length} open={open} onToggle={() => setOpen((o) => !o)} />
+      {open ? (
+        <div className="flex flex-col gap-2 px-0.5 pt-1">
+          {error ? <Banner onDismiss={() => setError(null)}>{error}</Banner> : null}
+          <div className="flex flex-col">
+            {list.map((t, i) => {
+              const isOpen = row === t.id;
+              return (
+                <div key={t.id} className="flex items-stretch gap-2.5">
+                  <span className="w-10 shrink-0 pt-px font-mono text-xs font-semibold text-tx-muted">{hhmm(t.treatment_time)}</span>
+                  <div className="flex w-2.5 shrink-0 flex-col items-center">
+                    <span className="mt-1 h-[9px] w-[9px] shrink-0 rounded-full bg-accent shadow-[0_0_0_3px_rgba(45,212,191,0.15)]" />
+                    {i < list.length - 1 ? <span className="mt-1 w-0.5 flex-grow bg-line" /> : null}
+                  </div>
+                  <div className="flex min-w-0 flex-grow flex-col gap-1.5 pb-3.5">
+                    <button type="button" onClick={() => setRow(isOpen ? null : t.id)} aria-expanded={isOpen} aria-label="Treatment details" className="flex min-w-0 flex-col gap-[3px] text-left">
+                      <span className={`text-[13px] leading-snug text-tx ${isOpen ? "" : "line-clamp-2"}`}>{t.action}</span>
+                      <span className="text-[11px] text-tx-faint">{t.worker ? `by ${t.worker}` : "No worker noted"}</span>
+                      {isOpen && t.notes ? <span className="whitespace-pre-line text-[11px] text-tx-soft">{t.notes}</span> : null}
+                    </button>
+                    {isOpen && perms.canManage ? (
+                      <div className="flex gap-1.5">
+                        <button type="button" onClick={() => start(t)} className="rounded-md bg-ink-850 px-2.5 py-1 text-[11px] font-semibold text-accent">
+                          Edit
+                        </button>
+                        <button type="button" disabled={busy} onClick={() => remove(t.id)} className="rounded-md bg-ink-850 px-2.5 py-1 text-[11px] font-semibold text-bad">
+                          Delete
+                        </button>
+                      </div>
+                    ) : null}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+          {!list.length && !form ? <div className="p-0.5 text-xs text-tx-faint">No treatments logged {kindLabel}.</div> : null}
+          {form ? (
+            <div className="flex flex-col gap-2.5 rounded-xl border border-accent bg-ink-850 p-3">
+              <div className="flex flex-col gap-0.5">
+                <span className="text-[13px] font-bold text-tx-strong">{form.editId ? "Edit treatment" : "New treatment"}</span>
+                <span className="font-mono text-[10px] text-tx-muted">Saving to {ctx.saveContext}</span>
+              </div>
+              <div className="flex flex-col gap-1">
+                <label htmlFor={`${ctx.cycleId}-treat-text`} className="text-[10px] uppercase tracking-[0.05em] text-tx-faint">
+                  Treatment
+                </label>
+                <textarea
+                  id={`${ctx.cycleId}-treat-text`}
+                  rows={2}
+                  placeholder="e.g. Probiotic 2 kg + molasses 5 L"
+                  value={form.text}
+                  onChange={(e) => setForm({ ...form, text: e.target.value })}
+                  className="w-full resize-y rounded-md border border-line bg-ink-800 px-2 py-[7px] text-[13px] text-tx-strong outline-none focus:border-accent"
+                />
+              </div>
+              <div className="grid grid-cols-[110px_minmax(0,1fr)] gap-2">
+                <div className="flex min-w-0 flex-col gap-1">
+                  <label htmlFor={`${ctx.cycleId}-treat-time`} className="text-[10px] uppercase tracking-[0.05em] text-tx-faint">
+                    Time
+                  </label>
+                  <input
+                    id={`${ctx.cycleId}-treat-time`}
+                    inputMode="numeric"
+                    maxLength={5}
+                    placeholder="HH:MM"
+                    value={form.time}
+                    onChange={(e) => setForm({ ...form, time: fmt24(e.target.value) })}
+                    className="w-full rounded-md border border-line bg-ink-800 px-2 py-[7px] font-mono text-[13px] font-semibold text-tx-strong outline-none focus:border-accent"
+                  />
+                </div>
+                <div className="flex min-w-0 flex-col gap-1">
+                  <label htmlFor={`${ctx.cycleId}-treat-worker`} className="text-[10px] uppercase tracking-[0.05em] text-tx-faint">
+                    Worker
+                  </label>
+                  <input
+                    id={`${ctx.cycleId}-treat-worker`}
+                    placeholder="Name or email"
+                    value={form.worker}
+                    onChange={(e) => setForm({ ...form, worker: e.target.value })}
+                    className="w-full rounded-md border border-line bg-ink-800 px-2 py-[7px] text-[13px] text-tx-strong outline-none focus:border-accent"
+                  />
+                </div>
+              </div>
+              <div className="flex justify-end gap-1.5">
+                <button type="button" onClick={() => setForm(null)} className="rounded-md bg-ink-800 px-3 py-1.5 text-xs font-semibold text-tx-muted">
+                  Cancel
+                </button>
+                <button type="button" onClick={save} disabled={!canSave || busy} className="rounded-md bg-accent px-3.5 py-1.5 text-xs font-bold text-accent-ink disabled:opacity-40">
+                  {busy ? "Saving…" : "Save"}
+                </button>
+              </div>
+            </div>
+          ) : null}
+          {!form && perms.canAdd ? (
+            <button type="button" onClick={() => start()} className="rounded-lg border border-dashed border-line-dash p-[9px] text-center text-xs font-semibold text-accent">
+              + Treatment
+            </button>
+          ) : null}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function LogHeader({
+  icon,
+  tone,
+  title,
+  summary,
+  count,
+  open,
+  onToggle,
+}: {
+  icon: "scale" | "flask";
+  tone: "warn" | "accent";
+  title: string;
+  summary: string;
+  count: number;
+  open: boolean;
+  onToggle: () => void;
+}) {
+  const t = tone === "warn" ? { bg: "bg-warn/[0.07] border-warn/[0.07] border-l-warn", text: "text-warn", badge: "bg-warn" } : { bg: "bg-accent/[0.07] border-accent/[0.07] border-l-accent", text: "text-accent", badge: "bg-accent" };
+  return (
+    <button
+      type="button"
+      onClick={onToggle}
+      aria-expanded={open}
+      className={`flex w-full items-center gap-2.5 rounded-[10px] border border-l-[3px] py-[11px] pl-[11px] pr-3 text-left ${t.bg}`}
+    >
+      <Icon name={icon} size={18} strokeWidth={1.8} className={`shrink-0 ${t.text}`} />
+      <div className="flex min-w-0 flex-grow flex-col gap-0.5">
+        <span className="text-xs font-bold uppercase tracking-[0.08em] text-tx">{title}</span>
+        <span className="truncate text-[11px] text-tx-muted">{summary}</span>
+      </div>
+      {count > 0 ? (
+        <span className={`inline-flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full px-1.5 font-mono text-[11px] font-bold text-accent-ink ${t.badge}`}>{count}</span>
+      ) : null}
+      <Icon name="chevron" size={14} strokeWidth={2.2} className={`shrink-0 text-tx-muted transition-transform ${open ? "rotate-180" : ""}`} />
+    </button>
+  );
+}
