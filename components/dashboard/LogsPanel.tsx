@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 
-import { Banner } from "@/components/ui/Field";
+import { Banner, ConfirmStrip } from "@/components/ui/Field";
 import { Icon } from "@/components/ui/Icon";
 import { api, type DayView, type Harvest, type Treatment } from "@/lib/api";
 import { daysBetween, docFor, fmt24, hhmm, nowHHMM, valid24 } from "@/lib/dates";
@@ -45,6 +45,9 @@ export function SamplingHarvestLog({ ctx, requested, onRequestHandled }: { ctx: 
   const [form, setForm] = useState<Form | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Row id waiting for a delete confirmation, and whether a population save is waiting for one.
+  const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
+  const [confirmSave, setConfirmSave] = useState(false);
 
   useEffect(() => {
     if (!requested) return;
@@ -128,10 +131,14 @@ export function SamplingHarvestLog({ ctx, requested, onRequestHandled }: { ctx: 
     } else {
       f.pop = popToday !== null && editRow ? String(popToday) : "";
     }
+    setConfirmSave(false);
     setForm({ kind, editId: editRow?.id, fields: f });
   }
 
-  const setField = (k: string, v: string) => setForm((fm) => (fm ? { ...fm, fields: { ...fm.fields, [k]: v } } : fm));
+  const setField = (k: string, v: string) => {
+    setConfirmSave(false);
+    setForm((fm) => (fm ? { ...fm, fields: { ...fm.fields, [k]: v } } : fm));
+  };
   const valid = (fm: Form | null) => {
     if (!fm) return false;
     const f = fm.fields;
@@ -157,6 +164,7 @@ export function SamplingHarvestLog({ ctx, requested, onRequestHandled }: { ctx: 
         await api.createSample(ctx.cycleId, { date: day.date, population: Math.round(num(f.pop)) });
       }
       setForm(null);
+      setConfirmSave(false);
       ctx.onSaved();
     } catch (e) {
       setError(e instanceof Error ? e.message : "Saving failed.");
@@ -172,6 +180,7 @@ export function SamplingHarvestLog({ ctx, requested, onRequestHandled }: { ctx: 
       if (r.kind === "sampling") await api.upsertCycleDay(ctx.cycleId, day.date, { abw_g: null, abw_sample_time: null });
       else if (r.kind === "harvest") await api.deleteHarvest(r.id);
       setRow(null);
+      setConfirmDelete(null);
       ctx.onSaved();
     } catch (e) {
       setError(e instanceof Error ? e.message : "Deleting failed.");
@@ -248,10 +257,21 @@ export function SamplingHarvestLog({ ctx, requested, onRequestHandled }: { ctx: 
                         </div>
                       ))}
                     </div>
-                    {editable ? (
+                    {editable && confirmDelete === r.id ? (
+                      <ConfirmStrip
+                        message={
+                          r.kind === "sampling"
+                            ? `Delete this sampling (${r.time} · ${r.summary})? ABW, ADG and FCR from this day on will be recalculated.`
+                            : `Delete this harvest (${r.time} · ${r.summary})? Population, biomass and FCR from this day on will be recalculated.`
+                        }
+                        onCancel={() => setConfirmDelete(null)}
+                        onConfirm={() => remove(r)}
+                        busy={busy}
+                      />
+                    ) : editable ? (
                       <div className="flex justify-end gap-1.5">
                         {r.kind !== "population" ? (
-                          <button type="button" disabled={busy} onClick={() => remove(r)} className="rounded-md bg-ink-800 px-2.5 py-[5px] text-[11px] font-semibold text-bad">
+                          <button type="button" disabled={busy} onClick={() => setConfirmDelete(r.id)} className="rounded-md bg-ink-800 px-2.5 py-[5px] text-[11px] font-semibold text-bad">
                             Delete
                           </button>
                         ) : null}
@@ -296,14 +316,30 @@ export function SamplingHarvestLog({ ctx, requested, onRequestHandled }: { ctx: 
                   ))}
                 </div>
               ) : null}
-              <div className="flex justify-end gap-1.5">
-                <button type="button" onClick={() => setForm(null)} className="rounded-md bg-ink-800 px-3 py-1.5 text-xs font-semibold text-tx-muted">
-                  Cancel
-                </button>
-                <button type="button" onClick={save} disabled={!valid(form) || busy} className="rounded-md bg-accent px-3.5 py-1.5 text-xs font-bold text-accent-ink disabled:opacity-40">
-                  {busy ? "Saving…" : "Save"}
-                </button>
-              </div>
+              {confirmSave ? (
+                <ConfirmStrip
+                  message={`Set the population to ${fmtInt(num(form.fields.pop))}? Biomass, feeding index and FCR from this day on will be recalculated.`}
+                  confirmLabel={busy ? "Saving…" : "Set population"}
+                  onCancel={() => setConfirmSave(false)}
+                  onConfirm={save}
+                  busy={busy}
+                />
+              ) : (
+                <div className="flex justify-end gap-1.5">
+                  <button type="button" onClick={() => setForm(null)} className="rounded-md bg-ink-800 px-3 py-1.5 text-xs font-semibold text-tx-muted">
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    // A population count rescales every later day, so it asks first.
+                    onClick={() => (form.kind === "population" ? setConfirmSave(true) : save())}
+                    disabled={!valid(form) || busy}
+                    className="rounded-md bg-accent px-3.5 py-1.5 text-xs font-bold text-accent-ink disabled:opacity-40"
+                  >
+                    {busy ? "Saving…" : "Save"}
+                  </button>
+                </div>
+              )}
             </div>
           ) : null}
 
