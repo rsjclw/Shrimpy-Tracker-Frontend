@@ -76,6 +76,19 @@ export function FeedSchedule({
     return last?.feed_types ?? [];
   }, [day.default_feed_types, prevFeedDay]);
 
+  /**
+   * The additive the pond was last given, so a new day does not start by picking
+   * it again. Only when the last feeding had exactly one: two or more is a mix
+   * this cannot represent on a single row, and guessing one of them would be wrong.
+   */
+  const defaultAdditive = useMemo(() => {
+    const last = prevFeedDay ? sortFeedings(prevFeedDay.feedings).at(-1) : null;
+    if (!last || last.additives.length !== 1) return "";
+    const id = last.additives[0].product_id;
+    // Pre-merge entries carry no id, and nothing can be selected from a bare name.
+    return id && products.some((p) => p.id === id) ? id : "";
+  }, [prevFeedDay, products]);
+
   function begin(rows: FeedRow[], mode: "plain" | "fi" | "predict" = "plain") {
     setError(null);
     setEditing({ rows, mode });
@@ -191,7 +204,9 @@ export function FeedSchedule({
                     {prevFeedDay ? `Copy ${relLabel(prevFeedDay)}` : "Nothing to copy"}
                   </QuickButton>
                   <QuickButton onClick={() => begin([], "fi")}>Feeding index</QuickButton>
-                  <QuickButton onClick={() => begin([blankRow(hhmm(pond.default_feed_time) || "06:00", defaultTypes)])}>Add manually</QuickButton>
+                  <QuickButton onClick={() => begin([blankRow(hhmm(pond.default_feed_time) || "06:00", defaultTypes, defaultAdditive)])}>
+                    Add manually
+                  </QuickButton>
                 </div>
               ) : null}
             </div>
@@ -207,6 +222,7 @@ export function FeedSchedule({
           initialMode={editing.mode}
           products={products}
           defaultTypes={defaultTypes}
+          defaultAdditive={defaultAdditive}
           sessionTimes={sessionTimesFor(pond.default_feed_time)}
           copySource={prevFeedDay ? { label: `Copy ${relLabel(prevFeedDay)}`, rows: copiedRows } : null}
           prevFi={prevFi ? { label: `${relLabel(prevFi)} ${num(prevFi.metrics.feeding_index).toFixed(3)}`, value: num(prevFi.metrics.feeding_index).toFixed(3) } : null}

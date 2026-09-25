@@ -40,8 +40,22 @@ export function rowFromFeeding(f: Feeding, locked: boolean): FeedRow {
   };
 }
 
-export function blankRow(time: string, types: FeedingFeedType[]): FeedRow {
-  return { key: crypto.randomUUID(), time, kg: "", minutes: "", feedTypeId: types[0]?.product_id ?? "", additive: "", dose: "", locked: false };
+/**
+ * A fresh row, seeded from what the pond was last fed: the feed, and the additive
+ * that went with it. The dose is deliberately left blank - the server fills it
+ * from the last dose in this cycle, then the last anywhere on the farm.
+ */
+export function blankRow(time: string, types: FeedingFeedType[], additive = ""): FeedRow {
+  return {
+    key: crypto.randomUUID(),
+    time,
+    kg: "",
+    minutes: "",
+    feedTypeId: types[0]?.product_id ?? "",
+    additive,
+    dose: "",
+    locked: false,
+  };
 }
 
 type FiState = { fi: string; ratios: string[] };
@@ -55,6 +69,7 @@ export function FeedEditor({
   initialMode,
   products,
   defaultTypes,
+  defaultAdditive,
   sessionTimes,
   copySource,
   prevFi,
@@ -82,6 +97,8 @@ export function FeedEditor({
   maxFi: number | null;
   /** Dose each entry is currently on in this cycle (catalog id -> amount), for pre-filling. */
   doses: Record<string, string>;
+  /** Additive the pond was last fed, seeded onto new rows. */
+  defaultAdditive: string;
   canManage: boolean;
   saving: boolean;
   onCancel: () => void;
@@ -132,7 +149,7 @@ export function FeedEditor({
       const editable = current.filter((r) => !r.locked);
       let used = 0;
       const rebuilt = ratios.map((r, i) => {
-        const base = editable[i] ?? blankRow(sessionTimes[i] ?? "", defaultTypes);
+        const base = editable[i] ?? blankRow(sessionTimes[i] ?? "", defaultTypes, defaultAdditive);
         let kg = i === ratios.length - 1 ? daily - used : Math.round(daily * (r / 100) * 10) / 10;
         kg = Math.max(0, Math.round(kg * 10) / 10);
         used += kg;
@@ -382,7 +399,7 @@ export function FeedEditor({
         type="button"
         onClick={() => {
           const last = rows.at(-1);
-          setRows((rs) => [...rs, { ...blankRow("", defaultTypes), feedTypeId: last?.feedTypeId === "__keep" ? "" : last?.feedTypeId ?? defaultTypes[0]?.product_id ?? "" }]);
+          setRows((rs) => [...rs, { ...blankRow("", defaultTypes, defaultAdditive), feedTypeId: last?.feedTypeId === "__keep" ? "" : last?.feedTypeId ?? defaultTypes[0]?.product_id ?? "" }]);
         }}
         className="flex items-center justify-center gap-1.5 rounded-[10px] border border-dashed border-line-dash p-2.5 text-xs font-semibold text-accent"
       >

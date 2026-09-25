@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { ItemForm, type StockDraft } from "@/components/inventory/ItemForm";
 import { ItemRow } from "@/components/inventory/ItemRow";
@@ -103,6 +103,17 @@ export default function InventoryPage() {
   /** Products the farm knows that this warehouse does not stock yet. */
   const available = products.filter((p) => p.kind === "product" && !items.some((i) => i.product_id === p.id));
 
+  /** Re-read the catalog: a stock row's name, unit, price and pack sizes live
+   * on its product, not on the row, so editing one leaves `products` stale. */
+  const reloadProducts = useCallback(async () => {
+    if (!farm) return;
+    try {
+      setProducts(await api.listProducts(farm.id, "product"));
+    } catch {
+      // A stale catalog is not worth failing an edit that already went through.
+    }
+  }, [farm]);
+
   async function addItem(draft: StockDraft) {
     if (!wh || !farm) return;
     setBusy(true);
@@ -119,7 +130,7 @@ export default function InventoryPage() {
       patchItems(wh.id, (list) => [...list, created]);
       setAdding(false);
       setOpenItem(created.id);
-      setProducts(await api.listProducts(farm.id, "product"));
+      await reloadProducts();
     } catch (e) {
       setError(e instanceof Error ? e.message : "Could not stock it.");
     } finally {
@@ -393,12 +404,16 @@ export default function InventoryPage() {
                             canManage={canManage}
                             product={products.find((p) => p.id === i.product_id)}
                             lastStock={!(warehouses ?? []).some((w) => w.id !== wh.id && w.items.some((x) => x.product_id === i.product_id))}
-                            onChanged={(next) => patchItems(wh.id, (list) => list.map((x) => (x.id === next.id ? next : x)))}
+                            onChanged={(next) => {
+                              patchItems(wh.id, (list) => list.map((x) => (x.id === next.id ? next : x)));
+                              // The edit may have renamed, repriced or re-united the product.
+                              reloadProducts();
+                            }}
                             onDeleted={(id) => {
                               patchItems(wh.id, (list) => list.filter((x) => x.id !== id));
                               setOpenItem(null);
                               // That may have been its last stock row, which deletes it outright.
-                              if (farm) api.listProducts(farm.id, "product").then(setProducts).catch(() => undefined);
+                              reloadProducts();
                             }}
                           />
                         ))
