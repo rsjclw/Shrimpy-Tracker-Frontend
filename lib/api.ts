@@ -88,6 +88,8 @@ export type Pond = {
   name: string;
   area_m2: string | null;
   default_feed_time: string | null;
+  /** The warehouse this pond draws from; null means it moves no stock. */
+  warehouse_id: string | null;
 };
 export type PredictionConfig = {
   cycle: {
@@ -121,7 +123,7 @@ export type PredictionConfig = {
     disinfection_cost_per_day: number;
     liming_cost_per_day: number;
   };
-  feed_plan: { feed_type_id: string; maximum_daily_feed_kg: number; use_until_abw_g: number }[];
+  feed_plan: { product_id: string; maximum_daily_feed_kg: number; use_until_abw_g: number }[];
 };
 export type Cycle = {
   id: string;
@@ -143,29 +145,27 @@ export type Cycle = {
   blind_feeding_target_abw_g: string | null;
   prediction_config: PredictionConfig | null;
 };
-export type FeedAdditive = { id: number; farm_id: string; name: string; dosage_gr_per_kg: string | null };
-/** An additive as sent on a feeding: by catalog id or name; leave the dose out to use the cycle's last dose. */
-export type FeedingAdditiveIn = { additive_id?: number; name?: string; dosage_gr_per_kg?: number };
-/** An additive as stored on a feeding. additive_id is null only for legacy entries matching no catalog name. */
-export type FeedingAdditive = { additive_id: number | null; name: string; dosage_gr_per_kg: string; amount_g: string | null };
-export type AdditiveDose = {
-  additive_id: number;
+/** An additive on a feeding: by catalog id or name; leave the dose out to use the cycle's last dose. */
+export type FeedingAdditiveIn = { product_id?: string; name?: string; dose_per_kg?: number };
+/** As stored on a feeding. product_id is null only for entries written before the catalogs merged. */
+export type FeedingAdditive = {
+  product_id: string | null;
   name: string;
-  dosage_gr_per_kg: string | null;
-  source: "last_used" | "default" | "none";
-  last_used_date: string | null;
-  default_dosage_gr_per_kg: string | null;
+  dose_per_kg: string;
+  /** What the dose was in when logged: g, mL or pcs per kg of feed. */
+  dose_unit: string;
+  amount_g: string | null;
 };
-export type AdditiveUsage = { date: string; additive_id: number | null; name: string; feed_kg: string; amount_g: string; dosage_gr_per_kg: string };
-export type FeedType = {
-  id: string;
-  farm_id: string;
-  brand: string;
-  type: string;
-  price_per_kg: string;
-  notes: string | null;
-  created_at: string;
+/** The dose a cycle is on for an entry: whatever it last used. No stored default. */
+export type AdditiveDose = {
+  product_id: string | null;
+  name: string;
+  dose_per_kg: string;
+  /** g, mL or pcs, per kg of feed - follows what the product is counted in. */
+  dose_unit: string;
+  last_used_date: string;
 };
+export type AdditiveUsage = { date: string; product_id: string | null; name: string; feed_kg: string; amount_g: string; dosage_gr_per_kg: string };
 export type BlindFeedingTemplate = {
   id: string;
   farm_id: string;
@@ -175,13 +175,21 @@ export type BlindFeedingTemplate = {
   cumulative_feed_per_100k: number;
   created_at: string;
 };
+/**
+ * One feed on a feeding and its share of the amount. `product_id`/`name`/
+ * `price_per_unit` are current; `brand`/`type`/`price_per_kg` come back on
+ * feedings written before the catalogs merged.
+ */
 export type FeedingFeedType = {
-  feed_type_id: string;
-  brand: string;
-  type: string;
-  price_per_kg: string;
+  product_id: string | null;
+  name: string;
+  price_per_unit: string | null;
   percentage: string;
   notes: string | null;
+  feed_type_id?: string | null;
+  brand?: string | null;
+  type?: string | null;
+  price_per_kg?: string | null;
 };
 export type Feeding = {
   id: string;
@@ -196,6 +204,119 @@ export type Feeding = {
   updated_by?: string | null;
   updated_by_type?: string | null;
 };
+export type InventoryCategory =
+  | "feed"
+  | "supplements"
+  | "probiotics"
+  | "lime_minerals"
+  | "disinfectants"
+  | "medicine"
+  | "equipment"
+  | "other";
+/** A stock row: which item, in which warehouse, how much. `name`/`category`/`unit` are
+ * read-only copies of the item's own fields, folded in by the server. */
+export type InventoryItem = {
+  id: string;
+  warehouse_id: string;
+  product_id: string;
+  quantity: string;
+  low_stock_level: string | null;
+  location_note: string | null;
+  notes: string | null;
+  created_at: string;
+  updated_at: string;
+  name: string;
+  category: InventoryCategory;
+  unit: string;
+};
+/**
+ * One entry in the farm catalog, in two kinds shown in different places:
+ * - "product" is what you buy and keep (Biolacto) - managed on the inventory page.
+ * - "formula" is a treatment formula: what goes in the pond (Lactobacillus, Mix A),
+ *   managed in farm settings. Never stocked; applying it draws on its products.
+ *
+ * Distinct from `Treatment`, which is the log of what was applied on a day.
+ */
+export type ProductKind = "product" | "formula";
+export type ProductUnit = { id: string; unit: string; factor_to_base: string };
+export type ProductComponent = {
+  id: string;
+  component_product_id: string;
+  quantity: string;
+  component_name: string | null;
+  component_base_unit: string | null;
+};
+export type Product = {
+  id: string;
+  farm_id: string;
+  name: string;
+  category: InventoryCategory;
+  kind: ProductKind;
+  base_unit: string;
+  /** What one base unit costs. Set on products; null on formulas. */
+  price_per_unit: string | null;
+  /** A formula's cost, summed from its ingredients. Null if any of them has no price. */
+  cost_per_unit: string | null;
+  /** What a dose of this is measured in, per kg of feed: g, mL or pcs. */
+  dose_unit: string;
+  /** False for water and anything else named in a recipe but never counted. */
+  tracked: boolean;
+  active: boolean;
+  notes: string | null;
+  units: ProductUnit[];
+  components: ProductComponent[];
+  created_at: string;
+  updated_at: string;
+};
+export type ProductInput = {
+  name: string;
+  category: InventoryCategory;
+  kind: ProductKind;
+  base_unit: string;
+  price_per_unit: number | null;
+  tracked: boolean;
+  active: boolean;
+  notes: string | null;
+  units: { unit: string; factor_to_base: number }[];
+  components: { component_product_id: string; quantity: number }[];
+};
+/** One product a dose resolves to, with what the warehouse actually holds. */
+export type ExpansionLine = {
+  product_id: string;
+  name: string;
+  amount: string;
+  unit: string;
+  in_stock: string | null;
+  enough: boolean;
+};
+export type Expansion = { product_id: string; amount: string; unit: string; lines: ExpansionLine[] };
+export type Warehouse = {
+  id: string;
+  grid_id: string;
+  name: string;
+  notes: string | null;
+  created_at: string;
+  /** Ponds that draw feed and treatments from here. */
+  pond_ids: string[];
+};
+export type WarehouseInventory = Warehouse & { items: InventoryItem[] };
+export type InventoryItemInput = {
+  low_stock_level: number | null;
+  location_note: string | null;
+  notes?: string | null;
+};
+export type MovementKind = "receive" | "use" | "count";
+export type InventoryMovement = {
+  id: string;
+  item_id: string;
+  kind: MovementKind;
+  delta: string;
+  quantity_after: string;
+  note: string | null;
+  created_by: string | null;
+  created_at: string;
+};
+
 export type Harvest = {
   id: string;
   daily_log_id: string;
@@ -240,6 +361,15 @@ export type WaterParameters = Record<WaterParameterSourceKey, string | null> & {
   total_vibrio_count: string | null;
   vibrio_percentage: string | null;
 };
+/** A product line on a treatment, resolved to what left the warehouse when it was saved. */
+export type TreatmentItem = {
+  product_id: string;
+  name: string;
+  amount: string;
+  unit: string;
+  base_amount: string;
+  base_unit: string;
+};
 export type Treatment = {
   id: string;
   daily_log_id: string;
@@ -247,7 +377,12 @@ export type Treatment = {
   action: string;
   worker: string | null;
   notes: string | null;
+  /** Which warehouse the stock came out of; null for a treatment logged as text only. */
+  warehouse_id: string | null;
+  items: TreatmentItem[];
 };
+/** What a client sends: `unit` defaults to the product's own base unit. */
+export type TreatmentItemInput = { product_id: string; amount: number; unit?: string | null };
 export type DayMetrics = {
   doc: number;
   daily_feed_kg: string;
@@ -659,24 +794,87 @@ export const api = {
 
   createTreatment: (
     dailyLogId: string,
-    b: { treatment_time: string; action: string; worker?: string; notes?: string },
+    b: {
+      treatment_time: string;
+      action?: string;
+      worker?: string;
+      notes?: string;
+      warehouse_id?: string | null;
+      items?: TreatmentItemInput[];
+    },
   ) =>
     request<Treatment>(`/days/${dailyLogId}/treatments`, {
       method: "POST",
       body: JSON.stringify(b),
     }),
-  updateTreatment: (id: string, b: Partial<Omit<Treatment, "id" | "daily_log_id">>) =>
-    request<Treatment>(`/treatments/${id}`, { method: "PUT", body: JSON.stringify(b) }),
+  /** Sending `items` replaces them: the old stock goes back and the new amounts come out. */
+  updateTreatment: (
+    id: string,
+    b: Partial<Omit<Treatment, "id" | "daily_log_id" | "items">> & { items?: TreatmentItemInput[] },
+  ) => request<Treatment>(`/treatments/${id}`, { method: "PUT", body: JSON.stringify(b) }),
   deleteTreatment: (id: string) => request<void>(`/treatments/${id}`, { method: "DELETE" }),
 
-  listFeedTypes: (farmId?: string) => request<FeedType[]>(`/feed-types${farmId ? `?farm_id=${farmId}` : ""}`),
-  createFeedType: (b: { farm_id: string; brand: string; type: string; price_per_kg: number; notes?: string | null }) =>
-    request<FeedType>("/feed-types", { method: "POST", body: JSON.stringify(b) }),
-  updateFeedType: (
-    id: string,
-    b: { brand?: string; type?: string; price_per_kg?: number; notes?: string | null },
-  ) => request<FeedType>(`/feed-types/${id}`, { method: "PUT", body: JSON.stringify(b) }),
-  deleteFeedType: (id: string) => request<void>(`/feed-types/${id}`, { method: "DELETE" }),
+  /** `kind: "product"` lists what you buy (Biolacto); `"formula"` what you apply (Lactobacillus). */
+  listProducts: (farmId?: string, kind?: ProductKind, includeInactive = false) =>
+    request<Product[]>(
+      `/products?${new URLSearchParams({
+        ...(farmId ? { farm_id: farmId } : {}),
+        ...(kind ? { kind } : {}),
+        ...(includeInactive ? { include_inactive: "true" } : {}),
+      })}`,
+    ),
+  createProduct: (b: ProductInput & { farm_id: string }) =>
+    request<Product>("/products", { method: "POST", body: JSON.stringify(b) }),
+  updateProduct: (id: string, b: Partial<ProductInput>) =>
+    request<Product>(`/products/${id}`, { method: "PUT", body: JSON.stringify(b) }),
+  deleteProduct: (id: string) => request<void>(`/products/${id}`, { method: "DELETE" }),
+  /** What applying this much would actually take out of stock, before anyone saves. */
+  expandProduct: (id: string, amount: number, unit?: string | null, warehouseId?: string | null) =>
+    request<Expansion>(
+      `/products/${id}/expand?${new URLSearchParams({
+        amount: String(amount),
+        ...(unit ? { unit } : {}),
+        ...(warehouseId ? { warehouse_id: warehouseId } : {}),
+      })}`,
+    ),
+
+
+  getGridInventory: (gridId: string) => request<WarehouseInventory[]>(`/grids/${gridId}/inventory`),
+  createWarehouse: (gridId: string, b: { name: string; notes?: string | null; copy_items_from?: string | null }) =>
+    request<Warehouse>(`/grids/${gridId}/warehouses`, { method: "POST", body: JSON.stringify(b) }),
+  updateWarehouse: (id: string, b: { name?: string; notes?: string | null }) =>
+    request<Warehouse>(`/warehouses/${id}`, { method: "PUT", body: JSON.stringify(b) }),
+  deleteWarehouse: (id: string) => request<void>(`/warehouses/${id}`, { method: "DELETE" }),
+  /** Replaces the set of ponds drawing from this warehouse. */
+  setWarehousePonds: (id: string, pond_ids: string[]) =>
+    request<Warehouse>(`/warehouses/${id}/ponds`, { method: "PUT", body: JSON.stringify({ pond_ids }) }),
+  /**
+   * Stock something here: an existing product by `product_id`, or a new one via
+   * `new_product`. Creating a product only happens this way, so none can exist
+   * without a warehouse holding it.
+   */
+  createInventoryItem: (
+    warehouseId: string,
+    b: InventoryItemInput & {
+      quantity: number;
+      product_id?: string;
+      new_product?: {
+        name: string;
+        category: InventoryCategory;
+        base_unit: string;
+        price_per_unit: number | null;
+        units: { unit: string; factor_to_base: number }[];
+      };
+    },
+  ) =>
+    request<InventoryItem>(`/warehouses/${warehouseId}/items`, { method: "POST", body: JSON.stringify(b) }),
+  updateInventoryItem: (id: string, b: Partial<InventoryItemInput>) =>
+    request<InventoryItem>(`/inventory-items/${id}`, { method: "PUT", body: JSON.stringify(b) }),
+  deleteInventoryItem: (id: string) => request<void>(`/inventory-items/${id}`, { method: "DELETE" }),
+  addInventoryMovement: (id: string, b: { kind: MovementKind; amount: number; note?: string | null }) =>
+    request<InventoryItem>(`/inventory-items/${id}/movements`, { method: "POST", body: JSON.stringify(b) }),
+  listInventoryMovements: (id: string, limit = 10) =>
+    request<InventoryMovement[]>(`/inventory-items/${id}/movements?limit=${limit}`),
 
   listBlindFeedingTemplates: (farmId?: string) =>
     request<BlindFeedingTemplate[]>(`/blind-feeding-templates${farmId ? `?farm_id=${farmId}` : ""}`),
@@ -709,10 +907,4 @@ export const api = {
     request<AdditiveDose[]>(`/cycles/${cycleId}/additive-doses?date=${date}`),
   getAdditiveUsage: (cycleId: string, from: string, to: string) =>
     request<AdditiveUsage[]>(`/cycles/${cycleId}/additive-usage?from=${from}&to=${to}`),
-  listAdditives: (farmId?: string) => request<FeedAdditive[]>(`/additives${farmId ? `?farm_id=${farmId}` : ""}`),
-  createAdditive: (b: { farm_id: string; name: string; dosage_gr_per_kg?: number | null }) =>
-    request<FeedAdditive>("/additives", { method: "POST", body: JSON.stringify(b) }),
-  updateAdditive: (id: number, b: { name?: string; dosage_gr_per_kg?: number | null }) =>
-    request<FeedAdditive>(`/additives/${id}`, { method: "PUT", body: JSON.stringify(b) }),
-  deleteAdditive: (id: number) => request<void>(`/additives/${id}`, { method: "DELETE" }),
 };

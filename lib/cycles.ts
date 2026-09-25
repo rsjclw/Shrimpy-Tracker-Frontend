@@ -145,7 +145,7 @@ export function normalizeConfig(config: PredictionConfig | null | undefined): Pr
       liming_cost_per_day: n(src.costs.liming_cost_per_day),
     },
     feed_plan: src.feed_plan.map((r) => ({
-      feed_type_id: r.feed_type_id,
+      product_id: r.product_id,
       maximum_daily_feed_kg: n(r.maximum_daily_feed_kg),
       use_until_abw_g: n(r.use_until_abw_g),
     })),

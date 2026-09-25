@@ -4,7 +4,7 @@ import { useMemo, useState } from "react";
 
 import { Banner } from "@/components/ui/Field";
 import { Icon } from "@/components/ui/Icon";
-import { api, type Cycle, type DayView, type FeedAdditive, type FeedType, type Feeding, type FeedingAdditiveIn, type FeedingFeedType, type Pond } from "@/lib/api";
+import { api, type Cycle, type DayView, type Feeding, type FeedingAdditiveIn, type FeedingFeedType, type Pond, type Product } from "@/lib/api";
 import { docFor, hhmm, nowHHMM } from "@/lib/dates";
 import { fmtNum, num } from "@/lib/num";
 import {
@@ -38,8 +38,7 @@ export function FeedSchedule({
   day,
   history,
   kind,
-  feedTypes,
-  additives,
+  products,
   perms,
   onSaved,
 }: {
@@ -51,8 +50,7 @@ export function FeedSchedule({
   /** Older days, newest first (not including `day`). */
   history: DayView[];
   kind: DayKind;
-  feedTypes: FeedType[];
-  additives: FeedAdditive[];
+  products: Product[];
   perms: FeedPerms;
   onSaved: () => void;
 }) {
@@ -60,7 +58,7 @@ export function FeedSchedule({
   const [openRow, setOpenRow] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  // Dose each additive is on in this cycle as of the viewed day: pre-fills the editor's g/kg boxes.
+  // Dose each additive is on in this cycle as of the viewed day: pre-fills the editor’s dose boxes.
   const [doses, setDoses] = useState<Record<number, string>>({});
 
   const feedings = sortFeedings(day.feedings);
@@ -71,6 +69,7 @@ export function FeedSchedule({
   const prevFeedDay = history.find((d) => d.feedings.length > 0) ?? null;
   const relLabel = (d: DayView) => (docFor(d.date, day.date) === 2 ? "yesterday" : `DOC ${d.metrics.doc}`);
 
+  const feeds = useMemo(() => products.filter((p) => p.category === "feed"), [products]);
   const defaultTypes: FeedingFeedType[] = useMemo(() => {
     if (day.default_feed_types.length) return day.default_feed_types;
     const last = prevFeedDay ? sortFeedings(prevFeedDay.feedings).at(-1) : null;
@@ -82,7 +81,8 @@ export function FeedSchedule({
     setEditing({ rows, mode });
     api
       .getAdditiveDoses(cycle.id, day.date)
-      .then((list) => setDoses(Object.fromEntries(list.filter((d) => d.dosage_gr_per_kg !== null).map((d) => [d.additive_id, d.dosage_gr_per_kg as string]))))
+      // Every row now carries a dose: this cycle's, or the farm's last if it has none.
+      .then((list) => setDoses(Object.fromEntries(list.map((d) => [d.product_id, d.dose_per_kg]))))
       .catch(() => setDoses({}));
   }
 
@@ -127,7 +127,7 @@ export function FeedSchedule({
           feed_time: r.time,
           amount_kg: Math.round(num(r.kg) * 10) / 10,
           duration_min: r.minutes.trim() ? Math.round(num(r.minutes)) : undefined,
-          feed_types: feedTypesFor(r, feedTypes),
+          feed_types: feedTypesFor(r, feeds),
           additives: additivesFor(r),
         };
         if (r.id && r.original) {
@@ -205,8 +205,7 @@ export function FeedSchedule({
           saveContext={saveContext}
           initialRows={editing.rows}
           initialMode={editing.mode}
-          feedTypes={feedTypes}
-          additives={additives}
+          products={products}
           defaultTypes={defaultTypes}
           sessionTimes={sessionTimesFor(pond.default_feed_time)}
           copySource={prevFeedDay ? { label: `Copy ${relLabel(prevFeedDay)}`, rows: copiedRows } : null}
@@ -279,32 +278,32 @@ function FeedRowView({ feeding: f, status, open, onToggle }: { feeding: Feeding;
 
 // ---- payload helpers ----
 
-export function feedTypesFor(r: FeedRow, catalog: FeedType[]): FeedingFeedType[] {
+export function feedTypesFor(r: FeedRow, catalog: Product[]): FeedingFeedType[] {
   if (r.feedTypeId === "__keep") return r.original?.feed_types ?? [];
   const t = catalog.find((x) => x.id === r.feedTypeId);
   if (!t) return [];
-  return [{ feed_type_id: t.id, brand: t.brand, type: t.type, price_per_kg: t.price_per_kg, percentage: "100", notes: t.notes }];
+  return [{ product_id: t.id, name: t.name, price_per_unit: t.price_per_unit, percentage: "100", notes: t.notes }];
 }
 
 export function additivesFor(r: FeedRow): FeedingAdditiveIn[] {
   if (r.additive === "__keep") {
     return (r.original?.additives ?? []).map((a) =>
-      a.additive_id !== null ? { additive_id: a.additive_id, dosage_gr_per_kg: num(a.dosage_gr_per_kg) } : { name: a.name, dosage_gr_per_kg: num(a.dosage_gr_per_kg) },
+      a.product_id !== null ? { product_id: a.product_id, dose_per_kg: num(a.dose_per_kg) } : { name: a.name, dose_per_kg: num(a.dose_per_kg) },
     );
   }
   if (!r.additive) return [];
   const dose = num(r.dose);
   // A blank dose is left out so the server applies the cycle's last dose (or the farm default).
-  return [{ additive_id: Number(r.additive), ...(Number.isFinite(dose) ? { dosage_gr_per_kg: dose } : {}) }];
+  return [{ product_id: r.additive, ...(Number.isFinite(dose) ? { dose_per_kg: dose } : {}) }];
 }
 
 function changed(
   f: Feeding,
   p: { feed_time: string; amount_kg: number; duration_min?: number; feed_types: FeedingFeedType[]; additives: FeedingAdditiveIn[] },
 ) {
-  const types = (x: FeedingFeedType[]) => x.map((t) => `${t.feed_type_id}:${num(t.percentage)}`).sort().join("|");
-  const before = f.additives.map((a) => `${a.additive_id ?? a.name}:${num(a.dosage_gr_per_kg)}`).sort().join("|");
-  const after = p.additives.map((a) => `${a.additive_id ?? a.name}:${a.dosage_gr_per_kg ?? "auto"}`).sort().join("|");
+  const types = (x: FeedingFeedType[]) => x.map((t) => `${t.product_id}:${num(t.percentage)}`).sort().join("|");
+  const before = f.additives.map((a) => `${a.product_id ?? a.name}:${num(a.dose_per_kg)}`).sort().join("|");
+  const after = p.additives.map((a) => `${a.product_id ?? a.name}:${a.dose_per_kg ?? "auto"}`).sort().join("|");
   return (
     hhmm(f.feed_time) !== p.feed_time ||
     Math.abs(num(f.amount_kg) - p.amount_kg) > 0.001 ||

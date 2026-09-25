@@ -6,7 +6,7 @@ import { useState } from "react";
 import { Button } from "@/components/ui/Button";
 import { Icon } from "@/components/ui/Icon";
 import { CollapsibleSection } from "@/components/ui/Section";
-import type { BlindFeedingTemplate, FeedType } from "@/lib/api";
+import type { BlindFeedingTemplate, Product } from "@/lib/api";
 import { fmtInt, fmtNum } from "@/lib/num";
 import { type FeedPlanRow, has, num } from "./types";
 
@@ -14,15 +14,11 @@ function sortPlan(rows: FeedPlanRow[]): FeedPlanRow[] {
   return [...rows].sort((a, b) => num(a.cutoff) - num(b.cutoff));
 }
 
-function feedLabel(feedTypes: FeedType[], id: string): string {
-  const f = feedTypes.find((x) => x.id === id);
-  return f ? `${f.brand} · ${f.type}` : "—";
+function feedLabel(feeds: Product[], id: string): string {
+  return feeds.find((x) => x.id === id)?.name ?? "—";
 }
 
-function feedCode(feedTypes: FeedType[], id: string): string {
-  const f = feedTypes.find((x) => x.id === id);
-  return f ? f.type : "—";
-}
+const feedCode = feedLabel;
 
 function sparkPoints(values: number[]): string {
   if (values.length < 2) return "";
@@ -32,7 +28,7 @@ function sparkPoints(values: number[]): string {
   return values.map((n, i) => `${(2 + (i / (values.length - 1)) * 92).toFixed(1)},${(31 - ((n - lo) / span) * 28).toFixed(1)}`).join(" ");
 }
 
-type PlanEdit = { feed_type_id: string; max: string; cutoff: string };
+type PlanEdit = { product_id: string; max: string; cutoff: string };
 
 export function FeedingProgramSection({
   farmId,
@@ -46,7 +42,7 @@ export function FeedingProgramSection({
 }: {
   farmId: string;
   template: BlindFeedingTemplate | null;
-  feedTypes: FeedType[];
+  feedTypes: Product[];
   feedPlan: FeedPlanRow[];
   onChangePlan: (next: FeedPlanRow[]) => void;
   open: boolean;
@@ -56,7 +52,7 @@ export function FeedingProgramSection({
   const [editingKey, setEditingKey] = useState<string | null>(null);
   const [editDraft, setEditDraft] = useState<PlanEdit | null>(null);
 
-  const summary = `${template ? `${template.name.split(" · ")[0]} blind feeding` : "No blind feeding"} · ${feedPlan.length ? feedPlan.map((r) => feedCode(feedTypes, r.feed_type_id)).join(" → ") : "no feed plan"}`;
+  const summary = `${template ? `${template.name.split(" · ")[0]} blind feeding` : "No blind feeding"} · ${feedPlan.length ? feedPlan.map((r) => feedCode(feedTypes, r.product_id)).join(" → ") : "no feed plan"}`;
 
   function planError(pd: PlanEdit, editKey: string | null): string {
     if (!(num(pd.max) > 0)) return "Enter the max daily feed";
@@ -71,14 +67,14 @@ export function FeedingProgramSection({
       setEditDraft(null);
     } else {
       setEditingKey(row.key);
-      setEditDraft({ feed_type_id: row.feed_type_id, max: row.max, cutoff: row.cutoff });
+      setEditDraft({ product_id: row.product_id, max: row.max, cutoff: row.cutoff });
     }
   }
 
   function startAdd() {
     const last = feedPlan[feedPlan.length - 1];
     setEditingKey("new");
-    setEditDraft({ feed_type_id: last ? last.feed_type_id : feedTypes[0]?.id ?? "", max: "", cutoff: "" });
+    setEditDraft({ product_id: last ? last.product_id : feedTypes[0]?.id ?? "", max: "", cutoff: "" });
   }
 
   function cancelEdit() {
@@ -89,7 +85,7 @@ export function FeedingProgramSection({
   function applyEdit() {
     if (!editDraft || !editingKey) return;
     if (planError(editDraft, editingKey === "new" ? null : editingKey)) return;
-    const row = { feed_type_id: editDraft.feed_type_id, max: String(num(editDraft.max)), cutoff: num(editDraft.cutoff).toFixed(1) };
+    const row = { product_id: editDraft.product_id, max: String(num(editDraft.max)), cutoff: num(editDraft.cutoff).toFixed(1) };
     let next: FeedPlanRow[];
     if (editingKey === "new") {
       next = [...feedPlan, { key: `fp-new-${Date.now()}`, ...row }];
@@ -153,7 +149,7 @@ export function FeedingProgramSection({
                 >
                   <span className="flex h-[22px] w-[22px] shrink-0 items-center justify-center rounded-full bg-line text-[11px] font-bold text-tx-soft">{i + 1}</span>
                   <div className="flex min-w-0 flex-grow flex-col gap-0.5">
-                    <span className="truncate text-sm font-semibold text-tx-strong">{feedLabel(feedTypes, row.feed_type_id)}</span>
+                    <span className="truncate text-sm font-semibold text-tx-strong">{feedLabel(feedTypes, row.product_id)}</span>
                     <span className="font-mono text-xs text-tx-muted">
                       {prev ? `${fmtNum(prev, 1)} g` : "Start"} → {fmtNum(row.cutoff, 1)} g ABW
                     </span>
@@ -171,13 +167,13 @@ export function FeedingProgramSection({
                       </label>
                       <select
                         id={`pf-${row.key}`}
-                        value={editDraft.feed_type_id}
-                        onChange={(e) => setEditDraft({ ...editDraft, feed_type_id: e.target.value })}
+                        value={editDraft.product_id}
+                        onChange={(e) => setEditDraft({ ...editDraft, product_id: e.target.value })}
                         className="input-sm"
                       >
                         {feedTypes.map((ft) => (
                           <option key={ft.id} value={ft.id}>
-                            {ft.brand} · {ft.type}
+                            {ft.name}
                           </option>
                         ))}
                       </select>
@@ -237,11 +233,11 @@ export function FeedingProgramSection({
                 <label htmlFor="np-feed" className="field-label">
                   Feed type
                 </label>
-                <select id="np-feed" value={editDraft.feed_type_id} onChange={(e) => setEditDraft({ ...editDraft, feed_type_id: e.target.value })} className="input-sm">
+                <select id="np-feed" value={editDraft.product_id} onChange={(e) => setEditDraft({ ...editDraft, product_id: e.target.value })} className="input-sm">
                   <option value="">Select feed</option>
                   {feedTypes.map((ft) => (
                     <option key={ft.id} value={ft.id}>
-                      {ft.brand} · {ft.type}
+                      {ft.name}
                     </option>
                   ))}
                 </select>
@@ -279,7 +275,7 @@ export function FeedingProgramSection({
                 <Button variant="secondary" size="sm" onClick={cancelEdit}>
                   Cancel
                 </Button>
-                <Button variant="primary" size="sm" onClick={applyEdit} disabled={!!errNow || !editDraft.feed_type_id}>
+                <Button variant="primary" size="sm" onClick={applyEdit} disabled={!!errNow || !editDraft.product_id}>
                   Add step
                 </Button>
               </div>

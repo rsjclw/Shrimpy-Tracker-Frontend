@@ -25,7 +25,8 @@ export type IconName =
   | "chart"
   | "logout"
   | "user"
-  | "copy";
+  | "copy"
+  | "box";
 
 type Props = {
   name: IconName;
@@ -133,6 +134,13 @@ export function Icon({ name, size = 16, strokeWidth = 2, className, filled }: Pr
       );
     case "reset":
       return <svg {...common}><path d="M4 12a8 8 0 1 0 2.4-5.7M4 4v4h4" /></svg>;
+    case "box":
+      return (
+        <svg {...common}>
+          <path d="M21 8l-9-5-9 5v8l9 5 9-5V8Z" />
+          <path d="M3 8l9 5 9-5M12 13v8" />
+        </svg>
+      );
     case "scale":
       return (
         <svg {...common}>

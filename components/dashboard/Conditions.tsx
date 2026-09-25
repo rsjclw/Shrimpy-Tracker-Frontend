@@ -191,8 +191,11 @@ function MoonDetail({ today, onClose }: { today: string; onClose: () => void }) 
   const title = m.window
     ? `Molt window — around ${m.window === "full" ? "full" : "new"} moon`
     : `No molt window — ${next.name} moon in ${next.days} days`;
-  const points = [];
-  for (let off = -7; off <= 14; off++) points.push({ x: off, y: Math.round(moonOn(addDays(today, off)).illumination * 100) });
+  const past: { x: number; y: number }[] = [];
+  const future: { x: number; y: number }[] = [];
+  for (let off = -7; off <= 14; off++) (off < 0 ? past : future).push({ x: off, y: Math.round(moonOn(addDays(today, off)).illumination * 100) });
+  // Join the two lines so the upcoming days continue from today.
+  past.push(future[0]);
   const rows = [];
   for (let off = 0; off <= 14 && rows.length < 6; off++) {
     const d = addDays(today, off);
@@ -206,8 +209,22 @@ function MoonDetail({ today, onClose }: { today: string; onClose: () => void }) 
     <DetailPanel
       title="Moon"
       lines={[{ value: `${Math.round(m.illumination * 100)}% · ${m.waxing ? "waxing" : "waning"}`, when: title }]}
-      chart={{ series: [{ color: "#F5E6B8", points }], xMin: -7, xMax: 14, xStart: mediumDate(addDays(today, -7)), xEnd: mediumDate(addDays(today, 14)), format: (v) => `${Math.round(v)}%`, xLabel: (x) => `${rel(x)} · ${mediumDate(addDays(today, x))}` }}
-      legend={[{ label: "Illumination %", color: "#F5E6B8" }]}
+      chart={{
+        series: [
+          { color: "#2DD4BF", points: past },
+          { color: "#C084FC", points: future },
+        ],
+        xMin: -7,
+        xMax: 14,
+        xStart: mediumDate(addDays(today, -7)),
+        xEnd: mediumDate(addDays(today, 14)),
+        format: (v) => `${Math.round(v)}%`,
+        xLabel: (x) => `${rel(x)} · ${mediumDate(addDays(today, x))}`,
+      }}
+      legend={[
+        { label: "Illumination · past", color: "#2DD4BF" },
+        { label: "Illumination · upcoming", color: "#C084FC" },
+      ]}
       rowsTitle="Coming days · molt window opens 4 days before full/new moon"
       rows={rows}
       onClose={onClose}

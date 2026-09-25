@@ -124,7 +124,7 @@ export function feedTypeLabel(types: Pick<FeedingFeedType, "brand" | "type" | "p
 }
 
 export function additiveLabel(additives: FeedingAdditive[]): string {
-  return additives.map((a) => `${a.name} ${fmtNum(a.dosage_gr_per_kg, 3)} g/kg`).join(", ");
+  return additives.map((a) => `${a.name} ${fmtNum(a.dose_per_kg, 3)} ${a.dose_unit || "g"}/kg`).join(", ");
 }
 
 export function dayFeedKg(day: DayView | null): number {

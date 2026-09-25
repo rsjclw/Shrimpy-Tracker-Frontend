@@ -1,8 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 
-import type { Cycle, DayView, FeedAdditive, FeedType, Feeding, FeedingFeedType } from "@/lib/api";
+import type { Cycle, DayView, Feeding, FeedingFeedType, Product } from "@/lib/api";
 import { fmt24, hhmm } from "@/lib/dates";
 import { decimalInput, fmtInt, intInput, num } from "@/lib/num";
 import { feedTypeLabel, type DayKind } from "./model";
@@ -17,9 +17,9 @@ export type FeedRow = {
   minutes: string;
   /** Feed type id, "" for none, "__keep" to keep an existing multi-type mix. */
   feedTypeId: string;
-  /** Catalog additive id as text, "" for none, "__keep" to keep existing additives unchanged. */
+  /** Catalog entry id, "" for none, "__keep" to keep existing additives unchanged. */
   additive: string;
-  /** g/kg for the chosen additive; blank lets the server use the cycle's last dose. */
+  /** Dose for the chosen additive, in its own unit; blank uses the cycle's last dose. */
   dose: string;
   /** Existing feed an operator may not change (the backend only lets them add). */
   locked: boolean;
@@ -33,15 +33,15 @@ export function rowFromFeeding(f: Feeding, locked: boolean): FeedRow {
     time: hhmm(f.feed_time),
     kg: String(Math.round(num(f.amount_kg) * 10) / 10),
     minutes: f.duration_min !== null && f.duration_min !== undefined ? String(f.duration_min) : "",
-    feedTypeId: f.feed_types.length === 1 ? f.feed_types[0].feed_type_id : f.feed_types.length ? "__keep" : "",
-    additive: f.additives.length === 1 && f.additives[0].additive_id !== null ? String(f.additives[0].additive_id) : f.additives.length ? "__keep" : "",
-    dose: f.additives.length === 1 ? String(num(f.additives[0].dosage_gr_per_kg)) : "",
+    feedTypeId: f.feed_types.length === 1 ? f.feed_types[0].product_id ?? f.feed_types[0].feed_type_id ?? "" : f.feed_types.length ? "__keep" : "",
+    additive: f.additives.length === 1 && f.additives[0].product_id !== null ? f.additives[0].product_id : f.additives.length ? "__keep" : "",
+    dose: f.additives.length === 1 ? String(num(f.additives[0].dose_per_kg)) : "",
     locked,
   };
 }
 
 export function blankRow(time: string, types: FeedingFeedType[]): FeedRow {
-  return { key: crypto.randomUUID(), time, kg: "", minutes: "", feedTypeId: types[0]?.feed_type_id ?? "", additive: "", dose: "", locked: false };
+  return { key: crypto.randomUUID(), time, kg: "", minutes: "", feedTypeId: types[0]?.product_id ?? "", additive: "", dose: "", locked: false };
 }
 
 type FiState = { fi: string; ratios: string[] };
@@ -53,8 +53,7 @@ export function FeedEditor({
   saveContext,
   initialRows,
   initialMode,
-  feedTypes,
-  additives,
+  products,
   defaultTypes,
   sessionTimes,
   copySource,
@@ -74,22 +73,33 @@ export function FeedEditor({
   saveContext: string;
   initialRows: FeedRow[];
   initialMode: "plain" | "fi" | "predict";
-  feedTypes: FeedType[];
-  additives: FeedAdditive[];
+  products: Product[];
   defaultTypes: FeedingFeedType[];
   sessionTimes: string[];
   copySource: { label: string; rows: () => FeedRow[] } | null;
   prevFi: { label: string; value: string } | null;
   defaultRatios: string[];
   maxFi: number | null;
-  /** Dose each additive is currently on in this cycle (additive id -> g/kg), for pre-filling. */
-  doses: Record<number, string>;
+  /** Dose each entry is currently on in this cycle (catalog id -> amount), for pre-filling. */
+  doses: Record<string, string>;
   canManage: boolean;
   saving: boolean;
   onCancel: () => void;
   onSave: (rows: FeedRow[]) => void;
   onPredicted: () => void;
 }) {
+  const feeds = useMemo(() => products.filter((p) => p.category === "feed"), [products]);
+  /**
+   * What can go *into* feed: anything in the catalog that is not feed itself and
+   * not equipment. Products and formulas both, and whether or not a default dose
+   * is set - a dose can always be typed on the row.
+   */
+  const dosables = useMemo(
+    // Not counted means it never leaves a shelf, so there is nothing to dose.
+    () => products.filter((p) => p.tracked && p.category !== "feed" && p.category !== "equipment"),
+    [products],
+  );
+
   const [rows, setRows] = useState<FeedRow[]>(initialRows);
   const [fiState, setFiState] = useState<FiState | null>(initialMode === "fi" ? { fi: "", ratios: [...defaultRatios] } : null);
   const [predictOpen, setPredictOpen] = useState(initialMode === "predict");
@@ -317,12 +327,12 @@ export function FeedEditor({
               <select id={`${r.key}-type`} disabled={r.locked} value={r.feedTypeId} onChange={(e) => update(r.key, { feedTypeId: e.target.value })} className="input-xs font-sans">
                 <option value="">None</option>
                 {r.feedTypeId === "__keep" && r.original ? <option value="__keep">{feedTypeLabel(r.original.feed_types)}</option> : null}
-                {r.feedTypeId && r.feedTypeId !== "__keep" && !feedTypes.some((t) => t.id === r.feedTypeId) && r.original ? (
+                {r.feedTypeId && r.feedTypeId !== "__keep" && !feeds.some((t) => t.id === r.feedTypeId) && r.original ? (
                   <option value={r.feedTypeId}>{feedTypeLabel(r.original.feed_types)}</option>
                 ) : null}
-                {feedTypes.map((t) => (
+                {feeds.map((t) => (
                   <option key={t.id} value={t.id}>
-                    {t.brand} {t.type}
+                    {t.name}
                   </option>
                 ))}
               </select>
@@ -334,21 +344,27 @@ export function FeedEditor({
                 value={r.additive}
                 onChange={(e) => {
                   const id = e.target.value;
-                  const dose = id && id !== "__keep" ? doses[Number(id)] ?? additives.find((a) => String(a.id) === id)?.dosage_gr_per_kg ?? "" : "";
+                  // Only what this cycle has already dosed; a first dose is typed in.
+                  const dose = id && id !== "__keep" ? doses[id] ?? "" : "";
                   update(r.key, { additive: id, dose: dose ? String(num(dose)) : "" });
                 }}
                 className="input-xs font-sans"
               >
                 <option value="">None</option>
                 {r.additive === "__keep" && r.original ? <option value="__keep">{r.original.additives.map((a) => a.name).join(", ")}</option> : null}
-                {additives.map((a) => (
-                  <option key={a.id} value={String(a.id)}>
+                {dosables.map((a) => (
+                  <option key={a.id} value={a.id}>
                     {a.name}
                   </option>
                 ))}
               </select>
             </Mini>
-            <Mini label="g/kg" id={`${r.key}-dose`}>
+            {/* The dose unit follows what the additive is counted in, so a liquid
+                reads mL/kg rather than a meaningless "g". */}
+            <Mini
+              label={`${dosables.find((a) => a.id === r.additive)?.dose_unit ?? "g"}/kg`}
+              id={`${r.key}-dose`}
+            >
               <input
                 id={`${r.key}-dose`}
                 disabled={r.locked || !r.additive || r.additive === "__keep"}
@@ -366,7 +382,7 @@ export function FeedEditor({
         type="button"
         onClick={() => {
           const last = rows.at(-1);
-          setRows((rs) => [...rs, { ...blankRow("", defaultTypes), feedTypeId: last?.feedTypeId === "__keep" ? "" : last?.feedTypeId ?? defaultTypes[0]?.feed_type_id ?? "" }]);
+          setRows((rs) => [...rs, { ...blankRow("", defaultTypes), feedTypeId: last?.feedTypeId === "__keep" ? "" : last?.feedTypeId ?? defaultTypes[0]?.product_id ?? "" }]);
         }}
         className="flex items-center justify-center gap-1.5 rounded-[10px] border border-dashed border-line-dash p-2.5 text-xs font-semibold text-accent"
       >

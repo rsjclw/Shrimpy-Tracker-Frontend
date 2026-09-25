@@ -5,7 +5,7 @@ import { useCallback, useEffect, useState } from "react";
 
 import { Banner, Spinner } from "@/components/ui/Field";
 import { Icon } from "@/components/ui/Icon";
-import { api, type Cycle, type DayView, type FeedAdditive, type FeedType, type FarmRole, type Pond } from "@/lib/api";
+import { api, type Cycle, type DayView, type FarmRole, type Pond, type Product } from "@/lib/api";
 import { docFor, isoForDoc, nowHHMM } from "@/lib/dates";
 import { cycleLabel } from "@/lib/cycles";
 import { canAdd, canManage } from "@/lib/roles";
@@ -25,8 +25,7 @@ export function PondCard({
   farmId,
   farmName,
   role,
-  feedTypes,
-  additives,
+  products,
   todayDay,
   today,
   userEmail,
@@ -39,8 +38,7 @@ export function PondCard({
   farmId: string;
   farmName: string;
   role: FarmRole;
-  feedTypes: FeedType[];
-  additives: FeedAdditive[];
+  products: Product[];
   todayDay: DayView | null;
   today: string;
   userEmail: string;
@@ -83,7 +81,7 @@ export function PondCard({
     ? { cycleId: cycle.id, startDate: cycle.start_date, days, canEdit: perms.canManage, saveContext, trendsHref, ensureLogId, onSaved }
     : null;
   const logsCtx: LogsCtx | null = day
-    ? { cycleId: cycle.id, startDate: cycle.start_date, day, growth, perms, saveContext, userEmail, ensureLogId, onSaved }
+    ? { cycleId: cycle.id, startDate: cycle.start_date, day, growth, perms, gridId: pond.grid_id, saveContext, userEmail, products, ensureLogId, onSaved }
     : null;
 
   return (
@@ -155,8 +153,7 @@ export function PondCard({
                   day={day}
                   history={days.slice(1)}
                   kind={kind}
-                  feedTypes={feedTypes}
-                  additives={additives}
+                  products={products}
                   perms={perms}
                   onSaved={onSaved}
                 />

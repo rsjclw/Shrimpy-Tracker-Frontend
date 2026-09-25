@@ -4,9 +4,11 @@ import { useEffect, useState } from "react";
 
 import { Banner, ConfirmStrip } from "@/components/ui/Field";
 import { Icon } from "@/components/ui/Icon";
-import { api, type DayView, type Harvest, type Treatment } from "@/lib/api";
+import { api, type DayView, type Harvest, type Product, type Treatment, type WarehouseInventory } from "@/lib/api";
+import { load, peek, put } from "@/lib/cache";
 import { daysBetween, docFor, fmt24, hhmm, nowHHMM, valid24 } from "@/lib/dates";
 import { decimalInput, fmtDec, fmtInt, intInput, num, rupiah, signed } from "@/lib/num";
+import { expandLines, factorToBase, stockByProduct, unitsFor } from "@/lib/products";
 import type { LogKind } from "./GrowthStats";
 import type { Growth } from "./usePondData";
 
@@ -18,8 +20,11 @@ export type LogsCtx = {
   day: DayView;
   growth: Growth | null;
   perms: Perms;
+  gridId: string;
   saveContext: string;
   userEmail: string;
+  /** The farm's product catalog, so a treatment can take stock out directly. */
+  products: Product[];
   ensureLogId: () => Promise<string>;
   onSaved: () => void;
 };
@@ -384,33 +389,104 @@ function FormField({ cycleId, id, label, value, mode, placeholder, onChange }: {
 
 // ---------------- Treatments ----------------
 
+type TreatLine = { productId: string; amount: string; unit: string };
+type TreatForm = {
+  editId?: string;
+  text: string;
+  time: string;
+  worker: string;
+  warehouseId: string;
+  lines: TreatLine[];
+};
+
 export function TreatmentsLog({ ctx, kindLabel }: { ctx: LogsCtx; kindLabel: "today" | "on this day" }) {
-  const { day, perms } = ctx;
+  const { day, perms, products, gridId } = ctx;
   const [open, setOpen] = useState(false);
   const [row, setRow] = useState<string | null>(null);
-  const [form, setForm] = useState<{ editId?: string; text: string; time: string; worker: string } | null>(null);
+  const [form, setForm] = useState<TreatForm | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [warehouses, setWarehouses] = useState<WarehouseInventory[] | null>(null);
 
   const list = [...day.treatments].sort((a, b) => a.treatment_time.localeCompare(b.treatment_time));
   const lastWorker = [...list].reverse().find((t) => t.worker)?.worker ?? ctx.userEmail;
+  // Anything a worker can apply: stocked products and the mixtures made from them.
+  const usable = products.filter((p) => p.active && p.tracked);
+
+  // The grid's warehouses, fetched once the first form opens - the picker needs them.
+  useEffect(() => {
+    if (!form || warehouses || !usable.length) return;
+    const key = `inventory:${gridId}`;
+    const hit = peek<WarehouseInventory[]>(key);
+    if (hit) setWarehouses(hit.value);
+    if (hit?.fresh) return;
+    load(key, () => api.getGridInventory(gridId))
+      .then(setWarehouses)
+      .catch(() => setWarehouses((cur) => cur ?? []));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [form, gridId]);
+
+  /** Stock moved, so the grid inventory this and the inventory page share is stale. */
+  async function refreshStock() {
+    try {
+      const fresh = await api.getGridInventory(gridId);
+      put(`inventory:${gridId}`, fresh);
+      setWarehouses(fresh);
+    } catch {
+      // A stale on-hand hint is not worth failing a save that already went through.
+    }
+  }
 
   function start(t?: Treatment) {
     setError(null);
-    setForm(t ? { editId: t.id, text: t.action, time: hhmm(t.treatment_time), worker: t.worker ?? "" } : { text: "", time: nowHHMM(), worker: lastWorker });
+    const lines = (t?.items ?? []).map((i) => ({ productId: i.product_id, amount: String(num(i.amount)), unit: i.unit }));
+    setForm(
+      t
+        ? { editId: t.id, text: t.action, time: hhmm(t.treatment_time), worker: t.worker ?? "", warehouseId: t.warehouse_id ?? "", lines }
+        : { text: "", time: nowHHMM(), worker: lastWorker, warehouseId: "", lines: [] },
+    );
   }
 
-  const canSave = !!form && form.text.trim() !== "" && valid24(form.time);
+  /** Lines that are filled in enough to send, converted to base units for the preview. */
+  const readyLines = (form?.lines ?? []).filter((l) => l.productId && num(l.amount) > 0);
+  const warehouse = warehouses?.find((w) => w.id === form?.warehouseId) ?? null;
+  // Expand against the whole catalog, not just what is selectable: a recipe may
+  // reach an inactive product, and the preview must show what the server will take.
+  const preview = expandLines(
+    products,
+    readyLines.map((l) => {
+      const product = usable.find((p) => p.id === l.productId);
+      const factor = product ? factorToBase(product, l.unit) : null;
+      return { productId: l.productId, baseAmount: num(l.amount) * (factor ?? 0) };
+    }),
+  );
+  const onHand = stockByProduct(warehouse?.items ?? []);
+  const short = warehouse ? preview.filter((p) => (onHand.get(p.product.id) ?? 0) < p.amount) : [];
+
+  const canSave =
+    !!form &&
+    valid24(form.time) &&
+    (form.text.trim() !== "" || readyLines.length > 0) &&
+    (readyLines.length === 0 || !!form.warehouseId);
 
   async function save() {
     if (!form || !canSave) return;
     setBusy(true);
     setError(null);
     try {
-      const body = { treatment_time: form.time, action: form.text.trim(), worker: form.worker.trim() || undefined };
-      if (form.editId) await api.updateTreatment(form.editId, { ...body, worker: body.worker ?? null });
+      const items = readyLines.map((l) => ({ product_id: l.productId, amount: num(l.amount), unit: l.unit || null }));
+      const body = {
+        treatment_time: form.time,
+        // Blank is fine when products are given: the server writes the summary line.
+        action: form.text.trim() || undefined,
+        worker: form.worker.trim() || undefined,
+        warehouse_id: items.length ? form.warehouseId : null,
+        items,
+      };
+      if (form.editId) await api.updateTreatment(form.editId, { ...body, action: body.action ?? "", worker: body.worker ?? null });
       else await api.createTreatment(await ctx.ensureLogId(), body);
       setForm(null);
+      if (items.length) await refreshStock();
       ctx.onSaved();
     } catch (e) {
       setError(e instanceof Error ? e.message : "Saving failed.");
@@ -422,8 +498,11 @@ export function TreatmentsLog({ ctx, kindLabel }: { ctx: LogsCtx; kindLabel: "to
   async function remove(id: string) {
     setBusy(true);
     try {
+      const had = list.find((t) => t.id === id)?.items.length;
       await api.deleteTreatment(id);
       setRow(null);
+      // Deleting puts the stock back, so the on-hand figures move too.
+      if (had) await refreshStock();
       ctx.onSaved();
     } catch (e) {
       setError(e instanceof Error ? e.message : "Deleting failed.");
@@ -455,7 +534,19 @@ export function TreatmentsLog({ ctx, kindLabel }: { ctx: LogsCtx; kindLabel: "to
                   <div className="flex min-w-0 flex-grow flex-col gap-1.5 pb-3.5">
                     <button type="button" onClick={() => setRow(isOpen ? null : t.id)} aria-expanded={isOpen} aria-label="Treatment details" className="flex min-w-0 flex-col gap-[3px] text-left">
                       <span className={`text-[13px] leading-snug text-tx ${isOpen ? "" : "line-clamp-2"}`}>{t.action}</span>
-                      <span className="text-[11px] text-tx-faint">{t.worker ? `by ${t.worker}` : "No worker noted"}</span>
+                      <span className="text-[11px] text-tx-faint">
+                        {t.worker ? `by ${t.worker}` : "No worker noted"}
+                        {t.items.length ? ` · ${t.items.length} product${t.items.length === 1 ? "" : "s"} taken from stock` : ""}
+                      </span>
+                      {isOpen && t.items.length ? (
+                        <span className="flex flex-col gap-px pt-0.5">
+                          {t.items.map((i) => (
+                            <span key={i.product_id} className="font-mono text-[11px] text-tx-soft">
+                              {i.name} {fmtDec(i.amount, 3)} {i.unit}
+                            </span>
+                          ))}
+                        </span>
+                      ) : null}
                       {isOpen && t.notes ? <span className="whitespace-pre-line text-[11px] text-tx-soft">{t.notes}</span> : null}
                     </button>
                     {isOpen && perms.canManage ? (
@@ -482,17 +573,141 @@ export function TreatmentsLog({ ctx, kindLabel }: { ctx: LogsCtx; kindLabel: "to
               </div>
               <div className="flex flex-col gap-1">
                 <label htmlFor={`${ctx.cycleId}-treat-text`} className="text-[10px] uppercase tracking-[0.05em] text-tx-faint">
-                  Treatment
+                  Treatment {readyLines.length ? "(optional — products are listed below)" : ""}
                 </label>
                 <textarea
                   id={`${ctx.cycleId}-treat-text`}
                   rows={2}
-                  placeholder="e.g. Probiotic 2 kg + molasses 5 L"
+                  placeholder={readyLines.length ? "Anything the products do not say" : "e.g. Probiotic 2 kg + molasses 5 L"}
                   value={form.text}
                   onChange={(e) => setForm({ ...form, text: e.target.value })}
                   className="w-full resize-y rounded-md border border-line bg-ink-800 px-2 py-[7px] text-[13px] text-tx-strong outline-none focus:border-accent"
                 />
               </div>
+
+              {usable.length ? (
+                <div className="flex flex-col gap-1.5">
+                  <span className="text-[10px] uppercase tracking-[0.05em] text-tx-faint">Products used (takes them out of stock)</span>
+                  {form.lines.map((line, i) => {
+                    const product = usable.find((p) => p.id === line.productId);
+                    const setLine = (patch: Partial<TreatLine>) =>
+                      setForm({ ...form, lines: form.lines.map((x, j) => (j === i ? { ...x, ...patch } : x)) });
+                    return (
+                      <div key={i} className="flex items-center gap-1.5">
+                        <select
+                          aria-label={`Product ${i + 1}`}
+                          value={line.productId}
+                          onChange={(e) => {
+                            const next = usable.find((p) => p.id === e.target.value);
+                            setLine({ productId: e.target.value, unit: next?.base_unit ?? "" });
+                          }}
+                          className="min-w-0 flex-grow rounded-md border border-line bg-ink-800 px-2 py-[7px] text-[13px] text-tx-strong outline-none focus:border-accent"
+                        >
+                          <option value="">Choose…</option>
+                          {/* Grouped rather than suffixed: a worker reaches for a
+                              formula first, and falls back to a raw product. */}
+                          <optgroup label="Treatment formulas">
+                            {usable
+                              .filter((p) => p.kind === "formula")
+                              .map((p) => (
+                                <option key={p.id} value={p.id}>
+                                  {p.name}
+                                </option>
+                              ))}
+                          </optgroup>
+                          <optgroup label="Products">
+                            {usable
+                              .filter((p) => p.kind === "product")
+                              .map((p) => (
+                                <option key={p.id} value={p.id}>
+                                  {p.name}
+                                </option>
+                              ))}
+                          </optgroup>
+                        </select>
+                        <input
+                          aria-label={`Amount ${i + 1}`}
+                          inputMode="decimal"
+                          placeholder="0"
+                          value={line.amount}
+                          onChange={(e) => setLine({ amount: decimalInput(e.target.value, 3) })}
+                          className="w-16 shrink-0 rounded-md border border-line bg-ink-800 px-2 py-[7px] text-right font-mono text-[13px] text-tx-strong outline-none focus:border-accent"
+                        />
+                        <select
+                          aria-label={`Unit ${i + 1}`}
+                          value={line.unit}
+                          disabled={!product}
+                          onChange={(e) => setLine({ unit: e.target.value })}
+                          className="w-16 shrink-0 rounded-md border border-line bg-ink-800 px-1 py-[7px] text-[12px] text-tx-strong outline-none focus:border-accent disabled:opacity-40"
+                        >
+                          {(product ? unitsFor(product) : [""]).map((u) => (
+                            <option key={u} value={u}>
+                              {u}
+                            </option>
+                          ))}
+                        </select>
+                        <button
+                          type="button"
+                          aria-label={`Remove product ${i + 1}`}
+                          onClick={() => setForm({ ...form, lines: form.lines.filter((_, j) => j !== i) })}
+                          className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-tx-faint hover:text-tx-strong"
+                        >
+                          <Icon name="close" size={11} strokeWidth={2.6} />
+                        </button>
+                      </div>
+                    );
+                  })}
+                  <button
+                    type="button"
+                    onClick={() => setForm({ ...form, lines: [...form.lines, { productId: "", amount: "", unit: "" }] })}
+                    className="self-start rounded-md bg-ink-800 px-2.5 py-1 text-[11px] font-semibold text-accent"
+                  >
+                    + Product
+                  </button>
+
+                  {readyLines.length ? (
+                    <div className="flex flex-col gap-1">
+                      <label htmlFor={`${ctx.cycleId}-treat-wh`} className="text-[10px] uppercase tracking-[0.05em] text-tx-faint">
+                        Taken from
+                      </label>
+                      <select
+                        id={`${ctx.cycleId}-treat-wh`}
+                        value={form.warehouseId}
+                        onChange={(e) => setForm({ ...form, warehouseId: e.target.value })}
+                        className="w-full rounded-md border border-line bg-ink-800 px-2 py-[7px] text-[13px] text-tx-strong outline-none focus:border-accent"
+                      >
+                        <option value="">Pick a warehouse…</option>
+                        {(warehouses ?? []).map((w) => (
+                          <option key={w.id} value={w.id}>
+                            {w.name}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  ) : null}
+
+                  {preview.length ? (
+                    <div className="flex flex-col gap-0.5 rounded-md bg-ink-800 px-2.5 py-2">
+                      <span className="text-[10px] uppercase tracking-[0.05em] text-tx-faint">Comes out of stock</span>
+                      {preview.map((p) => {
+                        const have = onHand.get(p.product.id);
+                        const enough = !warehouse || (have ?? 0) >= p.amount;
+                        return (
+                          <span key={p.product.id} className={`font-mono text-[11px] ${enough ? "text-tx-soft" : "text-warn"}`}>
+                            {p.product.name} {fmtDec(p.amount, 3)} {p.product.base_unit}
+                            {warehouse ? ` · ${have === undefined ? "not stocked here" : `${fmtDec(have, 3)} on hand`}` : ""}
+                          </span>
+                        );
+                      })}
+                      {short.length ? (
+                        <span className="text-[11px] text-warn">
+                          More than is on hand — this will save and leave the stock below zero. Do a stock count to correct it.
+                        </span>
+                      ) : null}
+                    </div>
+                  ) : null}
+                </div>
+              ) : null}
               <div className="grid grid-cols-[110px_minmax(0,1fr)] gap-2">
                 <div className="flex min-w-0 flex-col gap-1">
                   <label htmlFor={`${ctx.cycleId}-treat-time`} className="text-[10px] uppercase tracking-[0.05em] text-tx-faint">

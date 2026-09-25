@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 
 import { Button } from "@/components/ui/Button";
 import { CollapsibleSection } from "@/components/ui/Section";
-import { api, type BlindFeedingTemplate, type Cycle, type FeedType, type Pond } from "@/lib/api";
+import { api, type BlindFeedingTemplate, type Cycle, type Pond, type Product } from "@/lib/api";
 import { normalizeConfig, pastCycles, statusLabel, statusText, todayDoc, cycleLabel, nextCycleName } from "@/lib/cycles";
 import { addDays, docFor, isoForDoc, niceDate, monthYear, todayIso } from "@/lib/dates";
 import { fmtInt, fmtNum } from "@/lib/num";
@@ -32,7 +32,7 @@ export function CycleSection({
   cycles: Cycle[];
   draft: CycleDraft | null;
   onChangeDraft: (next: CycleDraft) => void;
-  feedTypes: FeedType[];
+  feedTypes: Product[];
   templates: BlindFeedingTemplate[];
   open: boolean;
   onToggle: () => void;

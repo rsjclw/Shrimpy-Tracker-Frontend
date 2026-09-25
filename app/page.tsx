@@ -12,7 +12,7 @@ import { alertsFor } from "@/components/dashboard/model";
 import { PondCard } from "@/components/dashboard/PondCard";
 import { Banner } from "@/components/ui/Field";
 import { Icon } from "@/components/ui/Icon";
-import { api, type Cycle, type DayView, type Farm, type FeedAdditive, type FeedType, type Grid, type Pond } from "@/lib/api";
+import { api, type Cycle, type DayView, type Farm, type Grid, type Pond, type Product } from "@/lib/api";
 import { byStartDesc, currentCycle, cycleLabel, statusLabel } from "@/lib/cycles";
 import { niceDate, todayIso } from "@/lib/dates";
 import { canManage } from "@/lib/roles";
@@ -37,7 +37,7 @@ function writeJson(key: string, value: unknown) {
   }
 }
 
-type FarmData = { grids: Grid[]; ponds: Pond[]; cycles: Cycle[]; feedTypes: FeedType[]; additives: FeedAdditive[] };
+type FarmData = { grids: Grid[]; ponds: Pond[]; cycles: Cycle[]; products: Product[] };
 
 export default function Dashboard() {
   const user = useRequireUser();
@@ -89,14 +89,14 @@ export default function Dashboard() {
     const fresh = await load(
       key,
       async (): Promise<FarmData> => {
-        const [grids, ponds, cycles, feedTypes, additives] = await Promise.all([
+        const [grids, ponds, cycles, products] = await Promise.all([
           api.listGrids(id),
           api.listPonds(undefined, id),
           api.listCycles(id),
-          api.listFeedTypes(id),
-          api.listAdditives(id),
+          // Non-fatal: a backend without the catalog must not take the dashboard down.
+          api.listProducts(id).catch(() => [] as Product[]),
         ]);
-        return { grids, ponds, cycles, feedTypes, additives };
+        return { grids, ponds, cycles, products };
       },
       { persist: true },
     );
@@ -265,6 +265,16 @@ export default function Dashboard() {
         <Link href={`/trends?farm=${farm.id}`} className="inline-flex items-center gap-1.5 rounded-full border border-line-strong bg-ink-800 px-2.5 py-1.5 text-xs font-semibold text-tx-soft hover:text-tx-strong">
           <Icon name="chart" size={13} /> Trends
         </Link>
+        {grid ? (
+          <Link
+            href={`/inventory?farm=${farm.id}&grid=${grid.id}`}
+            aria-label="Inventory"
+            className="inline-flex items-center gap-1.5 rounded-full border border-line-strong bg-ink-800 px-2.5 py-1.5 text-xs font-semibold text-tx-soft hover:text-tx-strong"
+          >
+            <Icon name="box" size={13} />
+            <span className="hidden min-[400px]:inline">Inventory</span>
+          </Link>
+        ) : null}
         <AccountMenu user={user} />
       </div>
 
@@ -310,8 +320,7 @@ export default function Dashboard() {
                 farmId={farm.id}
                 farmName={farm.name}
                 role={farm.role}
-                feedTypes={data.feedTypes}
-                additives={data.additives}
+                products={data.products}
                 todayDay={todayDays[pond.id] ?? null}
                 today={today}
                 userEmail={user.email}

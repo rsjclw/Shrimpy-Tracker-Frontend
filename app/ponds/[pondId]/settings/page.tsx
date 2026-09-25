@@ -24,7 +24,7 @@ import {
 import { Button } from "@/components/ui/Button";
 import { Banner, ConfirmStrip, Loading } from "@/components/ui/Field";
 import { PageColumn, PageHeader } from "@/components/ui/PageHeader";
-import { api, type BlindFeedingTemplate, type Cycle, type Farm, type FeedType, type Grid, type Pond } from "@/lib/api";
+import { api, type BlindFeedingTemplate, type Cycle, type Farm, type Grid, type Pond, type Product } from "@/lib/api";
 import { currentCycle, cycleLabel } from "@/lib/cycles";
 import { isoForDoc } from "@/lib/dates";
 import { canManage } from "@/lib/roles";
@@ -49,7 +49,8 @@ export default function PondSettingsPage() {
   const [grid, setGrid] = useState<Grid | null>(null);
   const [farm, setFarm] = useState<Farm | null>(null);
   const [cycles, setCycles] = useState<Cycle[]>([]);
-  const [feedTypes, setFeedTypes] = useState<FeedType[]>([]);
+  // Feeds are catalog entries now: anything in the feed category, priced or not.
+  const [feedTypes, setFeedTypes] = useState<Product[]>([]);
   const [templates, setTemplates] = useState<BlindFeedingTemplate[]>([]);
 
   const [savedGeneral, setSavedGeneral] = useState<GeneralDraft>({ name: "", area: "", firstFeed: "06:00" });
@@ -72,7 +73,10 @@ export default function PondSettingsPage() {
     const currentGrid = grids.find((g) => g.id === currentPond.grid_id) ?? null;
     const currentFarm = currentGrid ? await api.getFarm(currentGrid.farm_id) : null;
     const [ft, tpl] = currentFarm
-      ? await Promise.all([api.listFeedTypes(currentFarm.id), api.listBlindFeedingTemplates(currentFarm.id)])
+      ? await Promise.all([
+          api.listProducts(currentFarm.id).then((all) => all.filter((p) => p.category === "feed")),
+          api.listBlindFeedingTemplates(currentFarm.id),
+        ])
       : [[], []];
 
     setPond(currentPond);

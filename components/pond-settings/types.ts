@@ -31,7 +31,7 @@ export function nextKey(prefix: string): string {
   return `${prefix}${rowKeySeq}`;
 }
 
-export type FeedPlanRow = { key: string; feed_type_id: string; max: string; cutoff: string };
+export type FeedPlanRow = { key: string; product_id: string; max: string; cutoff: string };
 export type PricePointRow = { key: string; count: string; price: string };
 
 export type CycleDraft = {
@@ -72,7 +72,7 @@ function draftFromConfig(cfg: PredictionConfig, name: string, finalDoc: string):
     maxSize: String(cfg.cycle.maximum_shrimp_size_g),
     stableCc: String(cfg.capacity.stable_carrying_capacity_kg_per_m2),
     finalCc: String(cfg.capacity.final_carrying_capacity_kg_per_m2),
-    feedPlan: cfg.feed_plan.map((r) => ({ key: nextKey("fp"), feed_type_id: r.feed_type_id, max: String(r.maximum_daily_feed_kg), cutoff: String(r.use_until_abw_g) })),
+    feedPlan: cfg.feed_plan.map((r) => ({ key: nextKey("fp"), product_id: r.product_id, max: String(r.maximum_daily_feed_kg), cutoff: String(r.use_until_abw_g) })),
     minHarvest: String(cfg.harvest.minimum_partial_harvest_biomass_kg),
     harvestFixedCost: String(cfg.harvest.harvest_fixed_cost_per_event),
     pricePoints: cfg.prices.harvest_price_points.map((p) => ({ key: nextKey("pp"), count: String(p.count_size), price: String(p.price_per_kg) })),
@@ -127,7 +127,7 @@ export function buildPredictionConfig(d: CycleDraft): PredictionConfig {
       disinfection_cost_per_day: num(d.disinfection),
       liming_cost_per_day: num(d.liming),
     },
-    feed_plan: d.feedPlan.map((r) => ({ feed_type_id: r.feed_type_id, maximum_daily_feed_kg: num(r.max), use_until_abw_g: num(r.cutoff) })),
+    feed_plan: d.feedPlan.map((r) => ({ product_id: r.product_id, maximum_daily_feed_kg: num(r.max), use_until_abw_g: num(r.cutoff) })),
   };
 }
 
@@ -150,7 +150,7 @@ export function cycleErrors(d: CycleDraft): string[] {
 
   if (d.feedPlan.length === 0) e.push("Add at least one feed plan step");
   d.feedPlan.forEach((r, i) => {
-    if (!r.feed_type_id) e.push(`Feed plan step ${i + 1} needs a feed type`);
+    if (!r.product_id) e.push(`Feed plan step ${i + 1} needs a feed`);
     if (!(num(r.max) > 0)) e.push(`Feed plan step ${i + 1} needs the max daily feed`);
     if (!(num(r.cutoff) > 0)) e.push(`Feed plan step ${i + 1} needs the ABW cutoff`);
   });
@@ -179,7 +179,7 @@ export function cycleErrors(d: CycleDraft): string[] {
 function stripKeys(d: CycleDraft) {
   return {
     ...d,
-    feedPlan: d.feedPlan.map(({ feed_type_id, max, cutoff }) => ({ feed_type_id, max, cutoff })),
+    feedPlan: d.feedPlan.map(({ product_id, max, cutoff }) => ({ product_id, max, cutoff })),
     pricePoints: d.pricePoints.map(({ count, price }) => ({ count, price })),
   };
 }

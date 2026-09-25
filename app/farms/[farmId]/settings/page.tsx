@@ -1,25 +1,25 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { AdditivesSection } from "@/components/farm-settings/AdditivesSection";
 import { BlindFeedingSection } from "@/components/farm-settings/BlindFeedingSection";
-import { FeedTypesSection } from "@/components/farm-settings/FeedTypesSection";
 import { GridsSection } from "@/components/farm-settings/GridsSection";
+import { FormulasSection } from "@/components/farm-settings/FormulasSection";
 import { Banner, Loading } from "@/components/ui/Field";
 import { PageColumn, PageHeader } from "@/components/ui/PageHeader";
-import { api, type BlindFeedingTemplate, type Farm, type FeedAdditive, type FeedType, type Grid, type Pond } from "@/lib/api";
+import { api, type BlindFeedingTemplate, type Farm, type Grid, type Pond, type Product } from "@/lib/api";
 import { canManage } from "@/lib/roles";
 import { useRequireUser } from "@/lib/session";
 
-type SectionKey = "feeds" | "additives" | "programs" | "grids";
+type SectionKey = "formulas" | "programs" | "grids";
 
 export default function FarmSettingsPage({ params }: { params: { farmId: string } }) {
   const { farmId } = params;
   const user = useRequireUser();
 
   const [farm, setFarm] = useState<Farm | null>(null);
-  const [feedTypes, setFeedTypes] = useState<FeedType[]>([]);
-  const [additives, setAdditives] = useState<FeedAdditive[]>([]);
+  // Formulas are what a worker applies; products are the goods they draw on.
+  const [products, setProducts] = useState<Product[]>([]);
+  const [items, setItems] = useState<Product[]>([]);
   const [templates, setTemplates] = useState<BlindFeedingTemplate[]>([]);
   const [grids, setGrids] = useState<Grid[]>([]);
   const [ponds, setPonds] = useState<Pond[]>([]);
@@ -28,8 +28,7 @@ export default function FarmSettingsPage({ params }: { params: { farmId: string 
 
   // Every section starts collapsed, same as the mockup.
   const [open, setOpen] = useState<Record<SectionKey, boolean>>({
-    feeds: false,
-    additives: false,
+    formulas: false,
     programs: false,
     grids: false,
   });
@@ -37,17 +36,17 @@ export default function FarmSettingsPage({ params }: { params: { farmId: string 
   const loadAll = useCallback(async () => {
     setLoading(true);
     try {
-      const [f, ft, ad, bf, gr, pd] = await Promise.all([
+      const [f, pr, it, bf, gr, pd] = await Promise.all([
         api.getFarm(farmId),
-        api.listFeedTypes(farmId),
-        api.listAdditives(farmId),
+        api.listProducts(farmId, "formula").catch(() => [] as Product[]),
+        api.listProducts(farmId, "product").catch(() => [] as Product[]),
         api.listBlindFeedingTemplates(farmId),
         api.listGrids(farmId),
         api.listPonds(undefined, farmId),
       ]);
       setFarm(f);
-      setFeedTypes(ft);
-      setAdditives(ad);
+      setProducts(pr);
+      setItems(it);
       setTemplates(bf);
       setGrids(gr);
       setPonds(pd);
@@ -64,8 +63,24 @@ export default function FarmSettingsPage({ params }: { params: { farmId: string 
     loadAll();
   }, [user, loadAll]);
 
-  const reloadFeedTypes = useCallback(async () => setFeedTypes(await api.listFeedTypes(farmId)), [farmId]);
-  const reloadAdditives = useCallback(async () => setAdditives(await api.listAdditives(farmId)), [farmId]);
+  /**
+   * Both halves of the catalog, because they share one name list: a product
+   * renamed on the inventory page has to be seen here or the name check blocks
+   * a formula over a name nobody is using any more.
+   */
+  const reloadCatalog = useCallback(async () => {
+    const [formulas, stocked] = await Promise.all([
+      api.listProducts(farmId, "formula"),
+      api.listProducts(farmId, "product"),
+    ]);
+    setProducts(formulas);
+    setItems(stocked);
+  }, [farmId]);
+
+  // Opening the section refetches: the inventory page may have renamed something.
+  useEffect(() => {
+    if (open.formulas) reloadCatalog().catch(() => undefined);
+  }, [open.formulas, reloadCatalog]);
   const reloadTemplates = useCallback(async () => setTemplates(await api.listBlindFeedingTemplates(farmId)), [farmId]);
   const reloadGrids = useCallback(async () => {
     const [gr, pd] = await Promise.all([api.listGrids(farmId), api.listPonds(undefined, farmId)]);
@@ -95,21 +110,14 @@ export default function FarmSettingsPage({ params }: { params: { farmId: string 
         <Banner tone="warn">Only maintainers can open farm settings.</Banner>
       ) : (
         <>
-          <FeedTypesSection
+          <FormulasSection
             farmId={farmId}
-            feedTypes={feedTypes}
+            products={products}
+            items={items}
             canManage={manage}
-            open={open.feeds}
-            onToggle={() => toggle("feeds")}
-            onReload={reloadFeedTypes}
-          />
-          <AdditivesSection
-            farmId={farmId}
-            additives={additives}
-            canManage={manage}
-            open={open.additives}
-            onToggle={() => toggle("additives")}
-            onReload={reloadAdditives}
+            open={open.formulas}
+            onToggle={() => toggle("formulas")}
+            onReload={reloadCatalog}
           />
           <BlindFeedingSection
             farmId={farmId}
