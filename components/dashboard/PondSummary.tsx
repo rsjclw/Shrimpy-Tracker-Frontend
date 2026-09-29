@@ -153,6 +153,8 @@ export function PondSummary({ days, growth, today, now }: { days: DayView[]; gro
           items={[
             { id: "feed", values: plain(day ? `${fmtInt(cumulativeFeed(day))} kg` : "—") },
             { id: "fcr", name: "FCR", values: plain(last?.fcr !== null && last?.fcr !== undefined ? last.fcr.toFixed(2) : "—") },
+            // Today's, as the feed schedule header shows it; no feeds yet means none.
+            { id: "fi", name: "FI", values: plain(day && Number.isFinite(num(day.metrics.feeding_index)) ? num(day.metrics.feeding_index).toFixed(3) : "—") },
           ]}
         />
       </Line>
