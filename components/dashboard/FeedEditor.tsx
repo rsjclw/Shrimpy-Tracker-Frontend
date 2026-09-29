@@ -58,7 +58,8 @@ export function blankRow(time: string, types: FeedingFeedType[], additive = ""):
   };
 }
 
-type FiState = { fi: string; ratios: string[] };
+/** The daily feed panel: a feeding index and the kg/day it means (typing either fills in the other), split by ratio. */
+type FiState = { fi: string; kg: string; ratios: string[] };
 
 export function FeedEditor({
   cycle,
@@ -71,7 +72,7 @@ export function FeedEditor({
   defaultTypes,
   defaultAdditive,
   sessionTimes,
-  copySource,
+  prevTotal,
   prevFi,
   defaultRatios,
   maxFi,
@@ -91,7 +92,8 @@ export function FeedEditor({
   products: Product[];
   defaultTypes: FeedingFeedType[];
   sessionTimes: string[];
-  copySource: { label: string; rows: () => FeedRow[] } | null;
+  /** The last day that had feeds, labelled with its total; picking it copies that day's rows. */
+  prevTotal: { label: string; rows: () => FeedRow[] } | null;
   prevFi: { label: string; value: string } | null;
   defaultRatios: string[];
   maxFi: number | null;
@@ -118,7 +120,7 @@ export function FeedEditor({
   );
 
   const [rows, setRows] = useState<FeedRow[]>(initialRows);
-  const [fiState, setFiState] = useState<FiState | null>(initialMode === "fi" ? { fi: "", ratios: [...defaultRatios] } : null);
+  const [fiState, setFiState] = useState<FiState | null>(initialMode === "fi" ? { fi: "", kg: "", ratios: [...defaultRatios] } : null);
   const [predictOpen, setPredictOpen] = useState(initialMode === "predict");
 
   const locked = rows.filter((r) => r.locked);
@@ -137,14 +139,23 @@ export function FeedEditor({
     setRows((rs) => rs.map((r) => (r.key === key ? { ...r, ...patch } : r)));
   }
 
-  /** Rebuild unlocked rows from a feeding index and per-feed ratios; last feed takes the rounding remainder. */
-  function applyFi(next: FiState) {
+  // Without a population estimate the two cannot be converted, so the other box is left blank.
+  const byFi = (cur: FiState, fi: string): FiState => {
+    const kg = num(fi) > 0 && pop > 0 ? Math.round(((num(fi) * doc * pop) / 100000) * 10) / 10 : NaN;
+    return { ...cur, fi, kg: Number.isFinite(kg) ? String(kg) : "" };
+  };
+  const byKg = (cur: FiState, kg: string): FiState => {
+    const fi = num(kg) > 0 && pop > 0 && doc > 0 ? (num(kg) * 100000) / (doc * pop) : NaN;
+    return { ...cur, kg, fi: Number.isFinite(fi) ? fi.toFixed(3) : "" };
+  };
+
+  /** Rebuild unlocked rows from the daily total and per-feed ratios; last feed takes the rounding remainder. */
+  function applyDaily(next: FiState) {
     setFiState(next);
-    const fi = num(next.fi);
+    const daily = Math.round(num(next.kg) * 10) / 10;
     const ratios = next.ratios.map((r) => num(r) || 0);
     const sum = ratios.reduce((t, r) => t + r, 0);
-    if (!(fi > 0) || !(pop > 0) || Math.abs(sum - 100) > 0.01 || !ratios.length) return;
-    const daily = Math.round(((fi * doc * pop) / 100000) * 10) / 10;
+    if (!(daily > 0) || Math.abs(sum - 100) > 0.01 || !ratios.length) return;
     setRows((current) => {
       const editable = current.filter((r) => !r.locked);
       let used = 0;
@@ -160,11 +171,11 @@ export function FeedEditor({
   }
 
   const fiNum = num(fiState?.fi ?? "");
-  const daily = fiState && fiNum > 0 && pop > 0 ? (fiNum * doc * pop) / 100000 : 0;
   const ratioSum = (fiState?.ratios ?? []).reduce((t, r) => t + (num(r) || 0), 0);
   const ratioOk = Math.abs(ratioSum - 100) < 0.01;
 
-  const helperCols = canPredict ? "grid-cols-3" : "grid-cols-2";
+  const chip = "w-full whitespace-nowrap rounded-lg border border-dashed border-line-dash px-2.5 py-[9px] font-mono text-[11px] text-tx-muted";
+  const bigInput = "w-full rounded-md border border-line bg-ink-800 px-2.5 py-2 font-mono text-base font-semibold text-tx-strong outline-none focus:border-accent";
 
   return (
     <div className="flex flex-col gap-2">
@@ -190,25 +201,17 @@ export function FeedEditor({
         </div>
       </div>
 
-      <div className={`grid gap-1.5 ${helperCols}`}>
-        <button
-          type="button"
-          disabled={!copySource}
-          onClick={() => copySource && replaceRows([...locked, ...copySource.rows()])}
-          className="rounded-lg border border-line bg-ink-850 px-1.5 py-[9px] text-center text-xs font-semibold text-tx disabled:opacity-40"
-        >
-          {copySource?.label ?? "Nothing to copy"}
-        </button>
+      <div className={`grid gap-1.5 ${canPredict ? "grid-cols-2" : "grid-cols-1"}`}>
         <button
           type="button"
           onClick={() => {
             setPredictOpen(false);
-            setFiState(fiState ? null : { fi: "", ratios: [...defaultRatios] });
+            setFiState(fiState ? null : { fi: "", kg: "", ratios: [...defaultRatios] });
           }}
           aria-expanded={!!fiState}
           className={`rounded-lg border border-line px-1.5 py-[9px] text-center text-xs font-semibold text-accent ${fiState ? "bg-accent/15" : "bg-ink-850"}`}
         >
-          Feeding index {fiState ? "▴" : "▾"}
+          Daily feed {fiState ? "▴" : "▾"}
         </button>
         {canPredict ? (
           <button
@@ -231,37 +234,62 @@ export function FeedEditor({
 
       {fiState ? (
         <div className="flex flex-col gap-2.5 rounded-xl border border-accent bg-ink-850 p-3">
-          <div className="flex items-end gap-2">
-            <div className="flex min-w-0 flex-grow flex-col gap-1">
-              <label htmlFor={`fi-${cycle.id}`} className="text-[10px] uppercase tracking-[0.05em] text-tx-faint">
-                Feeding index
-              </label>
-              <input
-                id={`fi-${cycle.id}`}
-                inputMode="decimal"
-                placeholder="0.000"
-                value={fiState.fi}
-                onChange={(e) => applyFi({ ...fiState, fi: decimalInput(e.target.value, 3) })}
-                className="w-full rounded-md border border-line bg-ink-800 px-2.5 py-2 font-mono text-base font-semibold text-tx-strong outline-none focus:border-accent"
-              />
-            </div>
+          {/* One grid so both "↺" chips share a width and the two boxes line up. */}
+          <div className="grid grid-cols-[minmax(0,1fr)_auto] items-end gap-x-2 gap-y-1">
+            <label htmlFor={`fi-${cycle.id}`} className="col-span-2 text-[10px] uppercase tracking-[0.05em] text-tx-faint">
+              Feeding index
+            </label>
+            <input
+              id={`fi-${cycle.id}`}
+              inputMode="decimal"
+              placeholder="0.000"
+              value={fiState.fi}
+              onChange={(e) => applyDaily(byFi(fiState, decimalInput(e.target.value, 3)))}
+              className={bigInput}
+            />
             {prevFi ? (
-              <button
-                type="button"
-                onClick={() => applyFi({ ...fiState, fi: prevFi.value })}
-                aria-label="Use previous feeding index"
-                className="shrink-0 whitespace-nowrap rounded-lg border border-dashed border-line-dash px-2.5 py-[9px] font-mono text-[11px] text-tx-muted"
-              >
+              <button type="button" onClick={() => applyDaily(byFi(fiState, prevFi.value))} aria-label="Use previous feeding index" className={chip}>
                 {prevFi.label} ↺
               </button>
-            ) : null}
+            ) : (
+              <span />
+            )}
+            <label htmlFor={`kg-${cycle.id}`} className="col-span-2 mt-1.5 text-[10px] uppercase tracking-[0.05em] text-tx-faint">
+              Daily feed kg
+            </label>
+            <input
+              id={`kg-${cycle.id}`}
+              inputMode="decimal"
+              placeholder="0.0"
+              value={fiState.kg}
+              onChange={(e) => applyDaily(byKg(fiState, decimalInput(e.target.value, 1)))}
+              className={bigInput}
+            />
+            {prevTotal ? (
+              <button
+                type="button"
+                onClick={() => {
+                  // The last day's whole schedule - times, amounts, feed and additives - so the total
+                  // lands exactly as it was fed rather than re-split through rounded ratios.
+                  const copied = prevTotal.rows();
+                  const kg = Math.round(copied.reduce((t, r) => t + num(r.kg), 0) * 10) / 10;
+                  setRows([...locked, ...copied]);
+                  setFiState(byKg({ ...fiState, ratios: [...defaultRatios] }, String(kg)));
+                }}
+                aria-label="Use previous daily feed"
+                className={chip}
+              >
+                {prevTotal.label} ↺
+              </button>
+            ) : (
+              <span />
+            )}
           </div>
           <div className="flex flex-col gap-0.5">
             <span className="font-mono text-[11px] text-tx-muted">
               = {fiNum > 0 ? fiNum.toFixed(3) : "FI"} × DOC {doc} × {pop ? fmtInt(pop) : "pop"} / 100,000
             </span>
-            <span className="font-mono text-[17px] font-bold text-accent">{daily ? `${(Math.round(daily * 10) / 10).toFixed(1)} kg/day` : "— kg/day"}</span>
-            <span className="text-[10px] text-tx-faint">{pop ? "Estimated population for this day, after harvests." : "No population estimate for this day yet."}</span>
+            <span className="text-[10px] text-tx-faint">{pop ? "Estimated population for this day, after harvests." : "No population estimate for this day yet, so only the daily feed can be set."}</span>
             {maxFi !== null && fiNum > maxFi ? <span className="text-[11px] text-warn">Above this cycle's max feeding index ({maxFi.toFixed(3)}).</span> : null}
           </div>
           <div className="flex flex-col gap-1.5 border-t border-line pt-2">
@@ -280,7 +308,7 @@ export function FeedEditor({
                       onChange={(e) => {
                         const ratios = [...fiState.ratios];
                         ratios[i] = decimalInput(e.target.value, 1);
-                        applyFi({ ...fiState, ratios });
+                        applyDaily({ ...fiState, ratios });
                       }}
                       className="input-xs pr-4 text-center"
                     />
@@ -294,7 +322,7 @@ export function FeedEditor({
                   type="button"
                   aria-label="One feed fewer"
                   disabled={fiState.ratios.length <= 1}
-                  onClick={() => applyFi({ ...fiState, ratios: fiState.ratios.slice(0, -1) })}
+                  onClick={() => applyDaily({ ...fiState, ratios: fiState.ratios.slice(0, -1) })}
                   className="flex h-[30px] w-[30px] items-center justify-center rounded-md border border-line text-[15px] text-tx-muted disabled:opacity-40"
                 >
                   −
@@ -302,7 +330,7 @@ export function FeedEditor({
                 <button
                   type="button"
                   aria-label="One more feed"
-                  onClick={() => applyFi({ ...fiState, ratios: [...fiState.ratios, "0"] })}
+                  onClick={() => applyDaily({ ...fiState, ratios: [...fiState.ratios, "0"] })}
                   className="flex h-[30px] w-[30px] items-center justify-center rounded-md border border-line text-[15px] text-tx-muted"
                 >
                   +

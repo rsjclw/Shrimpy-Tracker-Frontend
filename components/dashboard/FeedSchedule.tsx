@@ -202,11 +202,8 @@ export function FeedSchedule({
                 {kind === "past" ? "No feeds logged on this day." : kind === "future" ? "Nothing planned for this day yet." : "No feed schedule for today yet."}
               </div>
               {perms.canAdd ? (
-                <div className="grid grid-cols-3 gap-1.5">
-                  <QuickButton disabled={!prevFeedDay} onClick={() => begin(copiedRows())}>
-                    {prevFeedDay ? `Copy ${relLabel(prevFeedDay)}` : "Nothing to copy"}
-                  </QuickButton>
-                  <QuickButton onClick={() => begin([], "fi")}>Feeding index</QuickButton>
+                <div className="grid grid-cols-2 gap-1.5">
+                  <QuickButton onClick={() => begin([], "fi")}>Daily feed</QuickButton>
                   <QuickButton onClick={() => begin([blankRow(hhmm(pond.default_feed_time) || "06:00", defaultTypes, defaultAdditive)])}>
                     Add manually
                   </QuickButton>
@@ -227,7 +224,7 @@ export function FeedSchedule({
           defaultTypes={defaultTypes}
           defaultAdditive={defaultAdditive}
           sessionTimes={sessionTimesFor(pond.default_feed_time)}
-          copySource={prevFeedDay ? { label: `Copy ${relLabel(prevFeedDay)}`, rows: copiedRows } : null}
+          prevTotal={prevFeedDay ? { label: `${relLabel(prevFeedDay)} ${fmtNum(prevFeedDay.feedings.reduce((t, f) => t + num(f.amount_kg), 0), 1)} kg`, rows: copiedRows } : null}
           prevFi={prevFi ? { label: `${relLabel(prevFi)} ${num(prevFi.metrics.feeding_index).toFixed(3)}`, value: num(prevFi.metrics.feeding_index).toFixed(3) } : null}
           defaultRatios={ratiosDefault}
           maxFi={Number.isFinite(maxFi) ? maxFi : null}
@@ -249,13 +246,12 @@ export function FeedSchedule({
   );
 }
 
-function QuickButton({ children, onClick, disabled }: { children: React.ReactNode; onClick: () => void; disabled?: boolean }) {
+function QuickButton({ children, onClick }: { children: React.ReactNode; onClick: () => void }) {
   return (
     <button
       type="button"
       onClick={onClick}
-      disabled={disabled}
-      className="rounded-lg border border-line bg-ink-800 px-1.5 py-2.5 text-center text-xs font-semibold text-tx disabled:opacity-40"
+      className="rounded-lg border border-line bg-ink-800 px-1.5 py-2.5 text-center text-xs font-semibold text-tx"
     >
       {children}
     </button>
