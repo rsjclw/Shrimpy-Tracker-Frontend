@@ -251,7 +251,7 @@ export default function Dashboard() {
         onAddPond={() => setAddingPond(true)}
       />
 
-      <div className="-mt-2 flex items-center gap-3.5">
+      <div className="-mt-2 flex items-center gap-3">
         {data && grid ? (
           <>
             <Stat value={active.length} label="active" />
@@ -261,21 +261,28 @@ export default function Dashboard() {
         ) : !data ? (
           <DashStats />
         ) : null}
-        <span className="flex-grow" />
-        <Link href={`/trends?farm=${farm.id}`} className="inline-flex items-center gap-1.5 rounded-full border border-line-strong bg-ink-800 px-2.5 py-1.5 text-xs font-semibold text-tx-soft hover:text-tx-strong">
-          <Icon name="chart" size={13} /> Trends
-        </Link>
-        {grid ? (
+        {/* Labels drop to icons on narrow phones so the row never overflows the screen. */}
+        <div className="ml-auto flex shrink-0 items-center gap-2">
           <Link
-            href={`/inventory?farm=${farm.id}&grid=${grid.id}`}
-            aria-label="Inventory"
+            href={`/trends?farm=${farm.id}`}
+            aria-label="Trends"
             className="inline-flex items-center gap-1.5 rounded-full border border-line-strong bg-ink-800 px-2.5 py-1.5 text-xs font-semibold text-tx-soft hover:text-tx-strong"
           >
-            <Icon name="box" size={13} />
-            <span className="hidden min-[400px]:inline">Inventory</span>
+            <Icon name="chart" size={13} />
+            <span className="hidden min-[400px]:inline">Trends</span>
           </Link>
-        ) : null}
-        <AccountMenu user={user} />
+          {grid ? (
+            <Link
+              href={`/inventory?farm=${farm.id}&grid=${grid.id}`}
+              aria-label="Inventory"
+              className="inline-flex items-center gap-1.5 rounded-full border border-line-strong bg-ink-800 px-2.5 py-1.5 text-xs font-semibold text-tx-soft hover:text-tx-strong"
+            >
+              <Icon name="box" size={13} />
+              <span className="hidden min-[460px]:inline">Inventory</span>
+            </Link>
+          ) : null}
+          <AccountMenu user={user} />
+        </div>
       </div>
 
       {error ? <Banner onDismiss={() => setError(null)}>{error}</Banner> : null}

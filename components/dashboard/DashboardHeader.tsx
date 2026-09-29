@@ -98,10 +98,10 @@ export function DashboardHeader({
           <span className="truncate font-mono text-xs uppercase tracking-[0.14em] text-tx-muted">{farm.name}</span>
           {farms.length > 1 ? <Icon name="chevron" size={13} strokeWidth={2.4} className={`shrink-0 text-tx-muted transition-transform ${farmOpen ? "rotate-180" : ""}`} /> : null}
         </button>
-        <h1 className="m-0 flex items-center gap-2 whitespace-nowrap text-[24px] font-bold tracking-[-0.01em] text-tx-strong min-[400px]:text-[26px]">
+        <h1 className="m-0 flex min-w-0 items-center gap-1.5 text-[15px] font-semibold text-tx-strong min-[400px]:text-[17px]">
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src="/logo.png" alt="" width={30} height={30} className="h-[30px] w-[30px] shrink-0" />
-          Pond Monitoring
+          <img src="/logo.png" alt="" width={22} height={22} className="h-[22px] w-[22px] shrink-0" />
+          <span className="truncate">Pond Monitoring</span>
         </h1>
 
         {farmOpen ? (

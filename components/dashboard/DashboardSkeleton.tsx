@@ -35,10 +35,10 @@ export function DashboardSkeleton({ user, today }: { user: AuthUser | null; toda
       <div className="sticky top-0 z-30 -mx-5 -mt-7 flex items-start justify-between gap-3 border-b border-line-faint bg-ink-950 px-5 pb-3 pt-[22px]">
         <div className="flex min-w-0 flex-col gap-0.5">
           <span className="py-0.5 font-mono text-xs uppercase tracking-[0.14em] text-tx-muted">—</span>
-          <h1 className="m-0 flex items-center gap-2 whitespace-nowrap text-[24px] font-bold tracking-[-0.01em] text-tx-strong min-[400px]:text-[26px]">
+          <h1 className="m-0 flex min-w-0 items-center gap-1.5 text-[15px] font-semibold text-tx-strong min-[400px]:text-[17px]">
             {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src="/logo.png" alt="" width={30} height={30} className="h-[30px] w-[30px] shrink-0" />
-            Pond Monitoring
+            <img src="/logo.png" alt="" width={22} height={22} className="h-[22px] w-[22px] shrink-0" />
+            <span className="truncate">Pond Monitoring</span>
           </h1>
         </div>
         <div className="mt-0.5 flex shrink-0 items-center gap-2 rounded-xl border border-line bg-ink-800 px-3 py-[9px]">
@@ -47,13 +47,15 @@ export function DashboardSkeleton({ user, today }: { user: AuthUser | null; toda
         </div>
       </div>
 
-      <div className="-mt-2 flex items-center gap-3.5">
+      <div className="-mt-2 flex items-center gap-3">
         <DashStats />
-        <span className="flex-grow" />
-        <span className="inline-flex items-center gap-1.5 rounded-full border border-line-strong bg-ink-800 px-2.5 py-1.5 text-xs font-semibold text-tx-faint">
-          <Icon name="chart" size={13} /> Trends
-        </span>
-        {user ? <AccountMenu user={user} /> : <span className="h-8 w-8 shrink-0 rounded-full bg-ink-800" />}
+        <div className="ml-auto flex shrink-0 items-center gap-2">
+          <span className="inline-flex items-center gap-1.5 rounded-full border border-line-strong bg-ink-800 px-2.5 py-1.5 text-xs font-semibold text-tx-faint">
+            <Icon name="chart" size={13} />
+            <span className="hidden min-[400px]:inline">Trends</span>
+          </span>
+          {user ? <AccountMenu user={user} /> : <span className="h-8 w-8 shrink-0 rounded-full bg-ink-800" />}
+        </div>
       </div>
 
       <Conditions grid={null} today={today} canManage={false} onSetLocation={() => {}} />
