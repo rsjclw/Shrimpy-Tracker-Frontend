@@ -119,17 +119,24 @@ export function PondSummary({ days, growth, today, now }: { days: DayView[]; gro
 
   const bacteria = latestSampleDay(days, BACTERIA_KEYS);
   const tbc = num(bacteria?.water?.tbc);
+  // A sample with only TBC filled in must not read as zero vibrio.
+  const vibrioCounted = VIBRIO_KEYS.some((k) => Number.isFinite(num(bacteria?.water?.[k])));
   const tvc = sumKeys(bacteria, VIBRIO_KEYS);
-  const tvcPct = Number.isFinite(tbc) && tbc > 0 ? (tvc / tbc) * 100 : Number.NaN;
+  const tvcPct = vibrioCounted && Number.isFinite(tbc) && tbc > 0 ? (tvc / tbc) * 100 : Number.NaN;
   const bacteriaItems: Item[] = [
     { id: "tbc", name: "TBC", values: plain(fmtPow10(tbc)), age: bacteria ? daysBetween(bacteria.date, today) : null },
-    { id: "tvc", name: "TVC/TBC", values: [{ text: Number.isFinite(tvcPct) ? `${fmtNum(tvcPct, 1)}%` : "—", bad: outOfRange("vibrio_percentage", tvcPct) }] },
+    { id: "tvcPct", name: "TVC/TBC", values: [{ text: Number.isFinite(tvcPct) ? `${fmtNum(tvcPct, 1)}%` : "—", bad: outOfRange("vibrio_percentage", tvcPct) }] },
   ];
-  // Each colour's share of the vibrio, flagged on its own count (green and black should be none at all).
-  const vibrioItems: Item[] = VIBRIO_DEFS.flatMap((d) => {
-    const v = num(bacteria?.water?.[d.key]);
-    return Number.isFinite(v) && tvc > 0 ? [{ id: d.key, name: d.label, values: [{ text: share(v, tvc), bad: outOfRange(d.key, v) }] }] : [];
-  });
+  // Counts in cfu/mL, each colour flagged on its own limit: as a share, a harmless 100 yellow would read "100%".
+  const vibrioItems: Item[] = vibrioCounted
+    ? [
+        { id: "tvc", name: "TVC", values: plain(fmtInt(tvc)) },
+        ...VIBRIO_DEFS.flatMap((d) => {
+          const v = num(bacteria?.water?.[d.key]);
+          return Number.isFinite(v) ? [{ id: d.key, name: d.label, values: [{ text: fmtInt(v), bad: outOfRange(d.key, v) }] }] : [];
+        }),
+      ]
+    : [];
 
   return (
     <div className="flex flex-col gap-1">
@@ -179,9 +186,9 @@ export function PondSummary({ days, growth, today, now }: { days: DayView[]; gro
       <Line label="Bacteria">
         <Items items={bacteriaItems} />
       </Line>
-      {/* The vibrio colours on their own line, like the water nutrients, so every card breaks in the same place. */}
+      {/* Vibrio on its own line, like the water nutrients, so every card breaks in the same place. */}
       {vibrioItems.length ? (
-        <Line label="">
+        <Line label="Vibrio">
           <Items items={vibrioItems} />
         </Line>
       ) : null}
