@@ -22,12 +22,15 @@ import { FeedEditor, type FeedRow, blankRow, rowFromFeeding } from "./FeedEditor
 
 const DOT: Record<FeedStatus, string> = {
   done: "bg-good",
+  inprogress: "bg-accent motion-safe:animate-pulse",
   next: "bg-accent",
   missed: "bg-warn",
   notlogged: "bg-tx-ghost",
   upcoming: "bg-tx-off",
   planned: "bg-tx-off",
 };
+
+const TAG: Partial<Record<FeedStatus, string>> = { next: "NEXT", inprogress: "IN PROGRESS", missed: "MISSED", notlogged: "NOT LOGGED" };
 
 export type FeedPerms = { canAdd: boolean; canManage: boolean };
 
@@ -262,7 +265,7 @@ function QuickButton({ children, onClick, disabled }: { children: React.ReactNod
 function FeedRowView({ feeding: f, status, open, onToggle }: { feeding: Feeding; status: FeedStatus; open: boolean; onToggle: () => void }) {
   const done = status === "done";
   const slow = isSlowTray(f);
-  const tag = status === "next" ? "NEXT" : status === "missed" ? "MISSED" : status === "notlogged" ? "NOT LOGGED" : "";
+  const tag = TAG[status] ?? "";
   const detail = [feedTypeLabel(f.feed_types), additiveLabel(f.additives)].filter(Boolean).join(" · ");
   return (
     <div className={`rounded-[10px] border ${status === "next" ? "border-accent/35 bg-accent/[0.08]" : "border-ink-850 bg-ink-850"}`}>
@@ -273,7 +276,7 @@ function FeedRowView({ feeding: f, status, open, onToggle }: { feeding: Feeding;
             <span className={`w-11 shrink-0 font-mono text-sm font-semibold ${status === "next" ? "text-accent" : status === "upcoming" || status === "planned" ? "text-tx-muted" : "text-tx-strong"}`}>
               {hhmm(f.feed_time)}
             </span>
-            <span className={`flex-grow text-[9px] font-bold tracking-[0.08em] ${status === "next" ? "text-accent" : status === "missed" ? "text-warn" : "text-tx-faint"}`}>{tag}</span>
+            <span className={`flex-grow text-[9px] font-bold tracking-[0.08em] ${status === "next" || status === "inprogress" ? "text-accent" : status === "missed" ? "text-warn" : "text-tx-faint"}`}>{tag}</span>
             <span className="text-right font-mono text-[13px] font-semibold text-tx">{fmtNum(f.amount_kg, 1)} kg</span>
             <span className={`w-[58px] shrink-0 text-right font-mono text-xs ${slow ? "text-warn" : done ? "text-tx" : "text-tx-faint"}`}>
               {done ? `${f.duration_min} min` : "— min"}

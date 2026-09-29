@@ -1,6 +1,7 @@
 // Calendar helpers. Dates travel as ISO "YYYY-MM-DD" strings and are handled
 // as local calendar days, never as instants, so DOC arithmetic can't drift
-// across a timezone boundary.
+// across a timezone boundary. "Today" and "now" are read on the farm's clock
+// (WIB), since that is the clock log dates and feed times are stored in.
 
 const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
@@ -18,8 +19,27 @@ export function fromIso(iso: string): Date {
   return new Date(y, (m || 1) - 1, d || 1);
 }
 
+/** Log dates and feed times are farm-local, so the browser's own timezone must not decide what "today" is. */
+export const FARM_TIME_ZONE = "Asia/Jakarta";
+
+const farmClock = new Intl.DateTimeFormat("en-CA", {
+  timeZone: FARM_TIME_ZONE,
+  year: "numeric",
+  month: "2-digit",
+  day: "2-digit",
+  hour: "2-digit",
+  minute: "2-digit",
+  hourCycle: "h23",
+});
+
+/** The current date and HH:MM on the farm's clock. */
+function farmNow(): { date: string; time: string } {
+  const p = Object.fromEntries(farmClock.formatToParts(new Date()).map((x) => [x.type, x.value]));
+  return { date: `${p.year}-${p.month}-${p.day}`, time: `${p.hour}:${p.minute}` };
+}
+
 export function todayIso(): string {
-  return toIso(new Date());
+  return farmNow().date;
 }
 
 export function addDays(iso: string, days: number): string {
@@ -113,6 +133,5 @@ export function valid24(value: string): boolean {
 }
 
 export function nowHHMM(): string {
-  const n = new Date();
-  return `${String(n.getHours()).padStart(2, "0")}:${String(n.getMinutes()).padStart(2, "0")}`;
+  return farmNow().time;
 }

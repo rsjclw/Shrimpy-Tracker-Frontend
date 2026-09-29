@@ -90,21 +90,30 @@ export function sumKeys(day: DayView | null, keys: WaterParameterSourceKey[]): n
 
 // ---- Feed schedule ----
 
-export type FeedStatus = "done" | "next" | "missed" | "upcoming" | "planned" | "notlogged";
+export type FeedStatus = "done" | "inprogress" | "next" | "missed" | "upcoming" | "planned" | "notlogged";
 export type DayKind = "today" | "past" | "future";
 
 export function sortFeedings(list: Feeding[]): Feeding[] {
   return [...list].sort((a, b) => a.feed_time.localeCompare(b.feed_time));
 }
 
-/** Status of each feed on a day, mirroring the mockup: tray minutes logged = done. */
+/**
+ * Status of each feed on a day, mirroring the mockup: tray minutes logged = done.
+ * A feed whose time has passed is still in progress until the next feed is due;
+ * only then is an unlogged tray check missed.
+ */
 export function feedStatuses(list: Feeding[], kind: DayKind, now: string): FeedStatus[] {
   let nextFound = false;
-  return sortFeedings(list).map((f) => {
+  const sorted = sortFeedings(list);
+  return sorted.map((f, i) => {
     if (f.duration_min !== null && f.duration_min !== undefined) return "done";
     if (kind === "past") return "notlogged";
     if (kind === "future") return "planned";
-    if (hhmm(f.feed_time) < now) return "missed";
+    const time = hhmm(f.feed_time);
+    if (time < now) {
+      const following = sorted.slice(i + 1).find((g) => hhmm(g.feed_time) > time);
+      return following && hhmm(following.feed_time) <= now ? "missed" : "inprogress";
+    }
     if (!nextFound) {
       nextFound = true;
       return "next";
@@ -186,6 +195,8 @@ export function nextFeedHint(day: DayView | null, now: string): { label: string;
   }
   const missed = statuses.filter((s) => s === "missed").length;
   if (missed) return { label: "Feed today", value: `${missed} missed`, tone: "warn" };
+  const busyIdx = statuses.indexOf("inprogress");
+  if (busyIdx >= 0) return { label: "Feed today", value: `${hhmm(sorted[busyIdx].feed_time)} in progress`, tone: "accent" };
   return { label: "Feed today", value: "All fed", tone: "good" };
 }
 

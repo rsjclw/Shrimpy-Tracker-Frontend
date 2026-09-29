@@ -1,4 +1,5 @@
 import type { InventoryCategory, InventoryItem } from "@/lib/api";
+import { FARM_TIME_ZONE } from "@/lib/dates";
 import { num } from "@/lib/num";
 
 export const CATEGORIES: { key: InventoryCategory; label: string }[] = [
@@ -55,5 +56,5 @@ export function timeAgo(iso: string, now = Date.now()): string {
   const hours = Math.round(mins / 60);
   if (hours < 24) return `${hours}h ago`;
   const days = Math.round(hours / 24);
-  return days < 30 ? `${days}d ago` : new Date(iso).toLocaleDateString("en-GB", { day: "numeric", month: "short" });
+  return days < 30 ? `${days}d ago` : new Date(iso).toLocaleDateString("en-GB", { day: "numeric", month: "short", timeZone: FARM_TIME_ZONE });
 }
