@@ -55,6 +55,9 @@ function Line({ label, children }: { label: string; children: React.ReactNode })
 
 // Items wrap whole onto the next line on narrow phones, so there is no separator to leave dangling.
 function Items({ items }: { items: Item[] }) {
+  // Readings taken together (minerals tested the same day) get one age badge at the end, not the same "3d" after each.
+  const aged = items.filter((it) => it.age !== undefined && it.age !== null);
+  const shared = aged.length > 1 && aged.every((it) => it.age === aged[0].age) ? aged[0].age : null;
   return (
     <span className="flex min-w-0 flex-grow flex-wrap items-baseline gap-x-3.5 font-mono text-[13px] leading-5">
       {items.map((it) => (
@@ -68,9 +71,10 @@ function Items({ items }: { items: Item[] }) {
               </Fragment>
             ))}
           </span>
-          {it.age ? <Age days={it.age} /> : null}
+          {it.age && shared === null ? <Age days={it.age} /> : null}
         </span>
       ))}
+      {shared ? <Age days={shared} /> : null}
     </span>
   );
 }
@@ -128,15 +132,10 @@ export function PondSummary({ days, growth, today, now }: { days: DayView[]; gro
     { id: "tvcPct", name: "TVC/TBC", values: [{ text: Number.isFinite(tvcPct) ? `${fmtNum(tvcPct, 1)}%` : "—", bad: outOfRange("vibrio_percentage", tvcPct) }] },
   ];
   // Counts in cfu/mL, each colour flagged on its own limit: as a share, a harmless 100 yellow would read "100%".
-  const vibrioItems: Item[] = vibrioCounted
-    ? [
-        { id: "tvc", name: "TVC", values: plain(fmtInt(tvc)) },
-        ...VIBRIO_DEFS.flatMap((d) => {
-          const v = num(bacteria?.water?.[d.key]);
-          return Number.isFinite(v) ? [{ id: d.key, name: d.label, values: [{ text: fmtInt(v), bad: outOfRange(d.key, v) }] }] : [];
-        }),
-      ]
-    : [];
+  const vibrioItems: Item[] = VIBRIO_DEFS.flatMap((d) => {
+    const v = num(bacteria?.water?.[d.key]);
+    return Number.isFinite(v) ? [{ id: d.key, name: d.label, values: [{ text: fmtInt(v), bad: outOfRange(d.key, v) }] }] : [];
+  });
 
   return (
     <div className="flex flex-col gap-1">
@@ -176,9 +175,15 @@ export function PondSummary({ days, growth, today, now }: { days: DayView[]; gro
       <Line label="Water">
         <Items items={[water("ph", "pH"), water("do", "DO")]} />
       </Line>
-      {/* Its own line under Water, so every card breaks in the same place. */}
+      {/* Fixed groups, one line each, so every card breaks in the same place. */}
+      <Line label="">
+        <Items items={[water("clarity", "Clarity"), water("salinity", "Salinity")]} />
+      </Line>
       <Line label="">
         <Items items={[water("tan", "TAN"), water("phosphate", "PO₄"), water("nitrite", "NO₂")]} />
+      </Line>
+      <Line label="">
+        <Items items={[water("alkalinity", "Alk"), water("calcium", "Ca"), water("magnesium", "Mg")]} />
       </Line>
       <Line label="Plankton">
         <Items items={planktonItems} />
