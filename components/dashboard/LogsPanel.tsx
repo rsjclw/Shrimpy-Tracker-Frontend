@@ -128,7 +128,8 @@ export function SamplingHarvestLog({ ctx, requested, onRequestHandled }: { ctx: 
     setError(null);
     const f: Record<string, string> = { time: nowHHMM() };
     if (kind === "sampling") {
-      f.time = hhmm(day.abw_sample_time) || nowHHMM();
+      // Sampling is done at dawn; 05:00 matches the backend's default sample time.
+      f.time = hhmm(day.abw_sample_time) || "05:00";
       f.abw = day.abw_g !== null ? String(num(day.abw_g)) : "";
     } else if (kind === "harvest") {
       const h = editRow?.harvest;
