@@ -70,7 +70,7 @@ export function PondSummary({ days, growth, today, now }: { days: DayView[]; gro
   const statuses = day ? feedStatuses(day.feedings, "today", now) : [];
   const last = (growth?.samplings ?? []).filter((s) => s.date <= today).at(-1) ?? null;
 
-  const water = (id: "ph" | "do", name: string): Item => {
+  const water = (id: string, name: string): Item => {
     const t = WATER_TILES.find((w) => w.id === id)!;
     const readings = t.keys.map((k) => latestReading(days, k));
     const oldest = readings.flatMap((r) => (r ? [r.date] : [])).sort()[0];
@@ -120,6 +120,10 @@ export function PondSummary({ days, growth, today, now }: { days: DayView[]; gro
       </Line>
       <Line label="Water">
         <Items items={[water("ph", "pH"), water("do", "DO")]} />
+      </Line>
+      {/* Its own line under Water, so every card breaks in the same place. */}
+      <Line label="">
+        <Items items={[water("tan", "TAN"), water("phosphate", "PO₄"), water("nitrite", "NO₂")]} />
       </Line>
     </div>
   );
