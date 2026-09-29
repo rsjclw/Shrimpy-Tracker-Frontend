@@ -22,12 +22,47 @@ const FEED_TONE: Record<FeedStatus, string> = {
   notlogged: "text-tx-faint",
 };
 
-type Tile = { id: string; label: React.ReactNode; value: string; bad?: boolean; age?: number | null };
+/** One figure in a summary line: an optional name, its value (an AM/PM pair flags each reading on its own) and its age. */
+type Item = { id: string; name?: string; values: { text: string; bad?: boolean }[]; age?: number | null };
+
+const plain = (text: string) => [{ text }];
+
+function Line({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div className="flex items-baseline gap-2.5">
+      <span className="w-12 shrink-0 text-[10px] uppercase tracking-[0.06em] text-tx-faint">{label}</span>
+      {children}
+    </div>
+  );
+}
+
+// Items wrap whole onto the next line on narrow phones, so there is no separator to leave dangling.
+function Items({ items }: { items: Item[] }) {
+  return (
+    <span className="flex min-w-0 flex-grow flex-wrap items-baseline gap-x-3.5 font-mono text-[13px] leading-5">
+      {items.map((it) => (
+        <span key={it.id} className="inline-flex items-baseline gap-1 whitespace-nowrap">
+          {it.name ? <span className="font-sans text-[11px] text-tx-faint">{it.name}</span> : null}
+          <span>
+            {it.values.map((v, i) => (
+              <Fragment key={i}>
+                {i ? <span className="text-tx-faint">/</span> : null}
+                <span className={v.bad ? "text-bad" : "text-tx"}>{v.text}</span>
+              </Fragment>
+            ))}
+          </span>
+          {it.age ? <Age days={it.age} /> : null}
+        </span>
+      ))}
+    </span>
+  );
+}
 
 /**
  * Today at a glance on a collapsed pond card: the day's feeds in one line and the
- * numbers people would otherwise open the card for, taken the same way the open
- * card takes them. `days` is today first, then the older days of the loaded window.
+ * numbers people would otherwise open the card for, as plain lines rather than the
+ * open card's tiles. Figures are taken the same way the open card takes them.
+ * `days` is today first, then the older days of the loaded window.
  */
 export function PondSummary({ days, growth, today, now }: { days: DayView[]; growth: Growth | null; today: string; now: string }) {
   const day = days[0]?.date === today ? days[0] : null;
@@ -35,39 +70,24 @@ export function PondSummary({ days, growth, today, now }: { days: DayView[]; gro
   const statuses = day ? feedStatuses(day.feedings, "today", now) : [];
   const last = (growth?.samplings ?? []).filter((s) => s.date <= today).at(-1) ?? null;
 
-  const water = (id: "ph" | "do", name: string): Tile => {
+  const water = (id: "ph" | "do", name: string): Item => {
     const t = WATER_TILES.find((w) => w.id === id)!;
     const readings = t.keys.map((k) => latestReading(days, k));
     const oldest = readings.flatMap((r) => (r ? [r.date] : [])).sort()[0];
     return {
       id,
-      // "AM/PM" only where it fits beside an age badge; the "a/b" value says it is two readings anyway.
-      label: (
-        <>
-          {name}
-          <span className="hidden min-[400px]:inline"> AM/PM</span>
-        </>
-      ),
-      value: readings.some(Boolean) ? readings.map((r) => (r ? fmtNum(r.value, 2) : "—")).join("/") : "—",
-      bad: t.keys.some((k, i) => outOfRange(k, readings[i]?.value)),
+      name,
+      values: readings.some(Boolean) ? readings.map((r, i) => (r ? { text: fmtNum(r.value, 2), bad: outOfRange(t.keys[i], r.value) } : { text: "—" })) : plain("—"),
       age: oldest ? daysBetween(oldest, today) : null,
     };
   };
 
-  const tiles: Tile[] = [
-    { id: "feed", label: "Total feed", value: day ? `${fmtInt(cumulativeFeed(day))} kg` : "—" },
-    // No sampling yet means no ABW, so any biomass figure would be a made-up zero.
-    { id: "biomass", label: "Biomass", value: day && last && Number.isFinite(num(day.metrics.estimated_biomass_kg)) ? `${fmtInt(day.metrics.estimated_biomass_kg)} kg` : "—" },
-    { id: "abw", label: "ABW", value: last ? `${fmtDec(last.abw, 1)} g` : "—", age: last ? daysBetween(last.date, today) : null },
-    { id: "fcr", label: "FCR", value: last?.fcr !== null && last?.fcr !== undefined ? last.fcr.toFixed(2) : "—" },
-    water("ph", "pH"),
-    water("do", "DO"),
-  ];
+  // No sampling yet means no ABW, so any biomass figure would be a made-up zero.
+  const biomass = day && last && Number.isFinite(num(day.metrics.estimated_biomass_kg)) ? `${fmtInt(day.metrics.estimated_biomass_kg)} kg` : "—";
 
   return (
-    <div className="flex flex-col gap-2.5">
-      <div className="flex items-baseline gap-2.5">
-        <span className="w-9 shrink-0 text-[10px] uppercase tracking-[0.06em] text-tx-faint">Feed</span>
+    <div className="flex flex-col gap-1">
+      <Line label="Feed">
         <span className="min-w-0 flex-grow font-mono text-[13px] leading-5">
           {feedings.length ? (
             feedings.map((f, i) => (
@@ -81,18 +101,26 @@ export function PondSummary({ days, growth, today, now }: { days: DayView[]; gro
           )}
         </span>
         {feedings.length ? <span className="shrink-0 font-mono text-[13px] font-semibold text-tx-strong">{fmtDec(dayFeedKg(day), 1)} kg</span> : null}
-      </div>
-      <div className="grid grid-cols-3 gap-1.5">
-        {tiles.map((t) => (
-          <div key={t.id} className="flex min-w-0 flex-col gap-[3px] rounded-[10px] bg-ink-850 px-2 py-[7px]">
-            <div className="flex min-w-0 items-center justify-between gap-1">
-              <span className="truncate text-[10px] uppercase tracking-[0.05em] text-tx-faint">{t.label}</span>
-              {t.age ? <Age days={t.age} /> : null}
-            </div>
-            <span className={`truncate font-mono text-[13px] font-semibold ${t.bad ? "text-bad" : "text-tx"}`}>{t.value}</span>
-          </div>
-        ))}
-      </div>
+      </Line>
+      <Line label="Total">
+        <Items
+          items={[
+            { id: "feed", values: plain(day ? `${fmtInt(cumulativeFeed(day))} kg` : "—") },
+            { id: "fcr", name: "FCR", values: plain(last?.fcr !== null && last?.fcr !== undefined ? last.fcr.toFixed(2) : "—") },
+          ]}
+        />
+      </Line>
+      <Line label="Shrimp">
+        <Items
+          items={[
+            { id: "abw", name: "ABW", values: plain(last ? `${fmtDec(last.abw, 1)} g` : "—"), age: last ? daysBetween(last.date, today) : null },
+            { id: "biomass", name: "Biomass", values: plain(biomass) },
+          ]}
+        />
+      </Line>
+      <Line label="Water">
+        <Items items={[water("ph", "pH"), water("do", "DO")]} />
+      </Line>
     </div>
   );
 }
