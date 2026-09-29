@@ -5,10 +5,22 @@ import { Fragment } from "react";
 import type { DayView } from "@/lib/api";
 import { daysBetween } from "@/lib/dates";
 import { cumulativeFeed } from "@/lib/feed";
-import { fmtDec, fmtInt, fmtNum, num } from "@/lib/num";
-import { outOfRange } from "@/lib/thresholds";
+import { fmtDec, fmtInt, fmtNum, fmtPow10, num } from "@/lib/num";
+import { outOfRange, shareTooHigh } from "@/lib/thresholds";
 import { Age } from "./GrowthStats";
-import { WATER_TILES, dayFeedKg, feedStatuses, latestReading, sortFeedings, type FeedStatus } from "./model";
+import {
+  BACTERIA_FIELDS,
+  PLANKTON_DEFS,
+  VIBRIO_DEFS,
+  WATER_TILES,
+  dayFeedKg,
+  feedStatuses,
+  latestReading,
+  latestSampleDay,
+  sortFeedings,
+  sumKeys,
+  type FeedStatus,
+} from "./model";
 import type { Growth } from "./usePondData";
 
 // Fed amounts read plainly, the next one in accent, later ones dimmed, missed ones amber.
@@ -26,11 +38,16 @@ const FEED_TONE: Record<FeedStatus, string> = {
 type Item = { id: string; name?: string; values: { text: string; bad?: boolean }[]; age?: number | null };
 
 const plain = (text: string) => [{ text }];
+const share = (v: number, of: number) => `${Math.round((v / of) * 100)}%`;
+
+const PLANKTON_KEYS = PLANKTON_DEFS.map((d) => d.key);
+const BACTERIA_KEYS = BACTERIA_FIELDS.map((f) => f.key);
+const VIBRIO_KEYS = VIBRIO_DEFS.map((d) => d.key);
 
 function Line({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div className="flex items-baseline gap-2.5">
-      <span className="w-12 shrink-0 text-[10px] uppercase tracking-[0.06em] text-tx-faint">{label}</span>
+      <span className="w-14 shrink-0 text-[10px] uppercase tracking-[0.06em] text-tx-faint">{label}</span>
       {children}
     </div>
   );
@@ -85,6 +102,35 @@ export function PondSummary({ days, growth, today, now }: { days: DayView[]; gro
   // No sampling yet means no ABW, so any biomass figure would be a made-up zero.
   const biomass = day && last && Number.isFinite(num(day.metrics.estimated_biomass_kg)) ? `${fmtInt(day.metrics.estimated_biomass_kg)} kg` : "—";
 
+  // Plankton and bacteria are each one lab sample: the latest day any of their fields was filled, as the open card takes it.
+  const plankton = latestSampleDay(days, PLANKTON_KEYS);
+  const pTotal = sumKeys(plankton, PLANKTON_KEYS);
+  const planktonItems: Item[] =
+    pTotal > 0
+      ? [
+          { id: "total", values: [{ text: fmtPow10(pTotal), bad: outOfRange("total_plankton", pTotal) }], age: daysBetween(plankton!.date, today) },
+          // Only each group's share; the counts stay in the open card.
+          ...PLANKTON_DEFS.flatMap((d) => {
+            const v = num(plankton?.water?.[d.key]);
+            return Number.isFinite(v) ? [{ id: d.key, name: d.key === "plankton_zoo" ? "Zoo" : d.label, values: [{ text: share(v, pTotal), bad: shareTooHigh(d.key, v, pTotal) }] }] : [];
+          }),
+        ]
+      : [{ id: "total", values: plain("—") }];
+
+  const bacteria = latestSampleDay(days, BACTERIA_KEYS);
+  const tbc = num(bacteria?.water?.tbc);
+  const tvc = sumKeys(bacteria, VIBRIO_KEYS);
+  const tvcPct = Number.isFinite(tbc) && tbc > 0 ? (tvc / tbc) * 100 : Number.NaN;
+  const bacteriaItems: Item[] = [
+    { id: "tbc", name: "TBC", values: plain(fmtPow10(tbc)), age: bacteria ? daysBetween(bacteria.date, today) : null },
+    { id: "tvc", name: "TVC/TBC", values: [{ text: Number.isFinite(tvcPct) ? `${fmtNum(tvcPct, 1)}%` : "—", bad: outOfRange("vibrio_percentage", tvcPct) }] },
+  ];
+  // Each colour's share of the vibrio, flagged on its own count (green and black should be none at all).
+  const vibrioItems: Item[] = VIBRIO_DEFS.flatMap((d) => {
+    const v = num(bacteria?.water?.[d.key]);
+    return Number.isFinite(v) && tvc > 0 ? [{ id: d.key, name: d.label, values: [{ text: share(v, tvc), bad: outOfRange(d.key, v) }] }] : [];
+  });
+
   return (
     <div className="flex flex-col gap-1">
       <Line label="Feed">
@@ -125,6 +171,18 @@ export function PondSummary({ days, growth, today, now }: { days: DayView[]; gro
       <Line label="">
         <Items items={[water("tan", "TAN"), water("phosphate", "PO₄"), water("nitrite", "NO₂")]} />
       </Line>
+      <Line label="Plankton">
+        <Items items={planktonItems} />
+      </Line>
+      <Line label="Bacteria">
+        <Items items={bacteriaItems} />
+      </Line>
+      {/* The vibrio colours on their own line, like the water nutrients, so every card breaks in the same place. */}
+      {vibrioItems.length ? (
+        <Line label="">
+          <Items items={vibrioItems} />
+        </Line>
+      ) : null}
     </div>
   );
 }

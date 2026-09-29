@@ -34,6 +34,23 @@ export function fmtNum(value: number | string | null | undefined, digits = 2): s
   return n.toLocaleString("en-US", { maximumFractionDigits: digits });
 }
 
+const SUPERSCRIPT = "⁰¹²³⁴⁵⁶⁷⁸⁹";
+
+/** Lab counts as a power of ten: 1,250,000 -> 1.3×10⁶. Under 1,000 stays a plain number. */
+export function fmtPow10(value: number | string | null | undefined): string {
+  const n = num(value);
+  if (!Number.isFinite(n)) return "—";
+  if (Math.abs(n) < 1000) return fmtInt(n);
+  let exp = Math.floor(Math.log10(Math.abs(n)));
+  let mant = round1(n / 10 ** exp);
+  // 9.96 rounds up to 10.0, which belongs to the next power.
+  if (Math.abs(mant) >= 10) {
+    mant = round1(mant / 10);
+    exp += 1;
+  }
+  return `${fmtNum(mant, 1)}×10${[...String(exp)].map((c) => SUPERSCRIPT[Number(c)]).join("")}`;
+}
+
 /** Rp 18,600 */
 export function rupiah(value: number | string | null | undefined): string {
   const n = num(value);
