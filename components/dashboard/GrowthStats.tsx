@@ -65,8 +65,8 @@ export function GrowthStats({
         return { value: kg ? `${fmtDec(kg, 1)} kg` : "—", sub: "", age: null };
       }
       case "totalFeed":
-        // Today the headline is "fed so far"; the small figure is where the day will end up.
-        return { value: `${fmtInt(cumulativeFeed(day))} kg`, sub: day.date === todayIso() ? `${fmtInt(day.metrics.cumulative_feed_end_kg)} kg` : "", age: null };
+        // The small figure is always the end-of-day total; today the headline is "fed so far", other days it matches.
+        return { value: `${fmtInt(cumulativeFeed(day))} kg`, sub: `${fmtInt(day.metrics.cumulative_feed_end_kg)} kg`, age: null };
       case "abw":
         return { value: last ? `${fmtDec(last.abw, 1)} g` : "—", sub: prev ? `${fmtDec(prev.abw, 1)} g` : "", age: last ? age(last.date) : null };
       case "biomass":
