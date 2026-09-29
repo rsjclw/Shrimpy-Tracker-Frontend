@@ -8,12 +8,14 @@ import { Icon } from "@/components/ui/Icon";
 import { api, type Cycle, type DayView, type FarmRole, type Pond, type Product } from "@/lib/api";
 import { docFor, isoForDoc, nowHHMM } from "@/lib/dates";
 import { cycleLabel } from "@/lib/cycles";
+import { cachedDay, windowFor } from "@/lib/dayViews";
 import { canAdd, canManage } from "@/lib/roles";
 import { DayNavigator, kindOf } from "./DayNavigator";
 import { FeedSchedule } from "./FeedSchedule";
 import { GrowthStats, type LogKind } from "./GrowthStats";
 import { SamplingHarvestLog, TreatmentsLog, canLogKind, type LogsCtx } from "./LogsPanel";
 import { alertsFor, nextFeedHint } from "./model";
+import { PondSummary } from "./PondSummary";
 import { usePondData } from "./usePondData";
 import { Bacteria, Plankton, WaterQuality, type WaterCtx } from "./WaterPanels";
 
@@ -62,6 +64,8 @@ export function PondCard({
   const viewDoc = docFor(cycle.start_date, viewDate);
   const statusText = alerts.length ? "Needs attention" : "Stable";
   const saveContext = `${farmName} · ${pond.name} · DOC ${viewDoc}`;
+  // The collapsed summary is always about today, whichever day the open card was last left on.
+  const todayWindow = todayDay ? [todayDay, ...windowFor(today, cycle.start_date).slice(1).flatMap((d) => cachedDay(cycle.id, d) ?? [])] : [];
 
   const onSaved = useCallback(() => {
     reload();
@@ -87,22 +91,30 @@ export function PondCard({
   return (
     <div id={`pond-${pond.id}`} className="overflow-hidden rounded-[18px] border border-line bg-ink-800">
       <div className="flex items-center pr-3">
-        <button type="button" onClick={onToggle} aria-expanded={expanded} className="flex min-w-0 flex-grow items-center justify-between gap-3 py-4 pl-[18px] pr-3 text-left">
-          <div className="flex min-w-0 items-center gap-2.5">
-            <span className={`h-[9px] w-[9px] shrink-0 rounded-full ${alerts.length ? "bg-warn" : "bg-good"}`} title={alerts.length ? alerts.join(", ") : "No alerts today"} />
-            <div className="flex min-w-0 flex-col items-start gap-0.5">
-              <span className="text-base font-semibold text-tx-strong">{pond.name}</span>
-              <span className="truncate font-mono text-[11px] text-tx-faint">
-                {cycleLabel(cycle)} · {expanded ? statusText : `DOC ${todayDoc} · ${statusText}`}
-              </span>
+        <button type="button" onClick={onToggle} aria-expanded={expanded} className="flex min-w-0 flex-grow items-center gap-2.5 py-4 pl-[18px] pr-3 text-left">
+          <span className={`h-[9px] w-[9px] shrink-0 rounded-full ${alerts.length ? "bg-warn" : "bg-good"}`} title={alerts.length ? alerts.join(", ") : "No alerts today"} />
+          <div className="flex min-w-0 flex-grow flex-col gap-0.5">
+            {/* The feed hint shares the name's line so the status line below gets the card's full width. */}
+            <div className="flex items-baseline justify-between gap-3">
+              <span className="truncate text-base font-semibold text-tx-strong">{pond.name}</span>
+              {!expanded ? (
+                <span className="shrink-0 whitespace-nowrap">
+                  {hint.label ? <span className="mr-1.5 text-[10px] uppercase tracking-[0.06em] text-tx-faint">{hint.label}</span> : null}
+                  <span className={`font-mono text-[13px] font-semibold ${TONE[hint.tone]}`}>{hint.value}</span>
+                </span>
+              ) : null}
             </div>
+            <span className="truncate font-mono text-[11px] text-tx-faint">
+              {cycleLabel(cycle)} ·{" "}
+              {expanded ? (
+                statusText
+              ) : (
+                <>
+                  DOC {todayDoc} · {alerts.length ? <span className="text-warn">Check {alerts.join(", ")}</span> : statusText}
+                </>
+              )}
+            </span>
           </div>
-          {!expanded ? (
-            <div className="flex shrink-0 flex-col items-end gap-0.5">
-              <span className={`font-mono text-[13px] font-semibold ${TONE[hint.tone]}`}>{hint.value}</span>
-              <span className="text-[10px] uppercase tracking-[0.06em] text-tx-faint">{hint.label}</span>
-            </div>
-          ) : null}
         </button>
         {expanded && perms.canManage ? (
           <Link
@@ -117,6 +129,13 @@ export function PondCard({
           <Icon name="chevron" size={18} className={`transition-transform ${expanded ? "rotate-180" : ""}`} />
         </button>
       </div>
+
+      {!expanded ? (
+        // Tapping the summary opens the card like the header does; the header button is the keyboard route.
+        <div onClick={onToggle} className="-mt-1.5 cursor-pointer px-[18px] pb-4">
+          <PondSummary days={todayWindow} growth={growth} today={today} now={now} />
+        </div>
+      ) : null}
 
       {expanded ? (
         <>

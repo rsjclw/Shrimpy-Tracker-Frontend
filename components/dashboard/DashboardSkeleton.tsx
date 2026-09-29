@@ -2,6 +2,7 @@
 
 import { AccountMenu } from "@/components/dashboard/AccountMenu";
 import { Conditions } from "@/components/dashboard/Conditions";
+import { PondSummary } from "@/components/dashboard/PondSummary";
 import { Icon } from "@/components/ui/Icon";
 import type { AuthUser } from "@/lib/api";
 
@@ -10,17 +11,22 @@ export function PondSkeletons({ count = 2 }: { count?: number }) {
   return (
     <div className="flex flex-col gap-3.5" aria-busy="true" aria-label="Loading ponds">
       {Array.from({ length: count }, (_, i) => (
-        <div key={i} className="flex items-center justify-between gap-3 rounded-[18px] border border-line bg-ink-800 py-4 pl-[18px] pr-5">
-          <div className="flex min-w-0 items-center gap-2.5">
+        <div key={i} className="rounded-[18px] border border-line bg-ink-800">
+          <div className="flex items-center gap-2.5 py-4 pl-[18px] pr-[62px]">
             <span className="h-[9px] w-[9px] shrink-0 rounded-full bg-tx-off" />
-            <div className="flex min-w-0 flex-col items-start gap-0.5">
-              <span className="text-base font-semibold text-tx-faint">—</span>
+            <div className="flex min-w-0 flex-grow flex-col gap-0.5">
+              <div className="flex items-baseline justify-between gap-3">
+                <span className="text-base font-semibold text-tx-faint">—</span>
+                <span className="whitespace-nowrap">
+                  <span className="mr-1.5 text-[10px] uppercase tracking-[0.06em] text-tx-faint">Next</span>
+                  <span className="font-mono text-[13px] font-semibold text-tx-faint">—</span>
+                </span>
+              </div>
               <span className="font-mono text-[11px] text-tx-faint">— · DOC —</span>
             </div>
           </div>
-          <div className="flex shrink-0 flex-col items-end gap-0.5">
-            <span className="font-mono text-[13px] font-semibold text-tx-faint">—</span>
-            <span className="text-[10px] uppercase tracking-[0.06em] text-tx-faint">Next feed</span>
+          <div className="-mt-1.5 px-[18px] pb-4">
+            <PondSummary days={[]} growth={null} today="" now="" />
           </div>
         </div>
       ))}

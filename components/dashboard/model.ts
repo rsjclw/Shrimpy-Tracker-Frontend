@@ -183,21 +183,21 @@ export function alertsFor(day: DayView | null): string[] {
   return out;
 }
 
-/** Collapsed-card hint about today's feeding. */
+/** Collapsed-card hint about today's feeding, one short line beside the pond name. Only a bare time needs a label. */
 export function nextFeedHint(day: DayView | null, now: string): { label: string; value: string; tone: "accent" | "warn" | "good" | "faint" } {
-  if (!day || day.feedings.length === 0) return { label: "Feed today", value: "No schedule", tone: "faint" };
+  if (!day || day.feedings.length === 0) return { label: "", value: "No feed schedule", tone: "faint" };
   const sorted = sortFeedings(day.feedings);
   const statuses = feedStatuses(day.feedings, "today", now);
   const nextIdx = statuses.indexOf("next");
   if (nextIdx >= 0) {
     const f = sorted[nextIdx];
-    return { label: "Next feed", value: `${hhmm(f.feed_time)} · ${fmtNum(f.amount_kg, 1)} kg`, tone: "accent" };
+    return { label: "Next", value: `${hhmm(f.feed_time)} · ${fmtNum(f.amount_kg, 1)} kg`, tone: "accent" };
   }
   const missed = statuses.filter((s) => s === "missed").length;
-  if (missed) return { label: "Feed today", value: `${missed} missed`, tone: "warn" };
+  if (missed) return { label: "", value: `${missed} missed`, tone: "warn" };
   const busyIdx = statuses.indexOf("inprogress");
-  if (busyIdx >= 0) return { label: "Feed today", value: `${hhmm(sorted[busyIdx].feed_time)} in progress`, tone: "accent" };
-  return { label: "Feed today", value: "All fed", tone: "good" };
+  if (busyIdx >= 0) return { label: "", value: `${hhmm(sorted[busyIdx].feed_time)} in progress`, tone: "accent" };
+  return { label: "", value: "All fed", tone: "good" };
 }
 
 /** Per-feed share of a day's total, in whole percent summing to 100. */
