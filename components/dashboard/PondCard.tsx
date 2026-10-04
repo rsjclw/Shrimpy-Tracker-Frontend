@@ -183,6 +183,7 @@ export function PondCard({
                 />
                 <GrowthStats
                   startDate={cycle.start_date}
+                  stocked={cycle.initial_population}
                   day={day}
                   todayDay={todayDay}
                   growth={growth}

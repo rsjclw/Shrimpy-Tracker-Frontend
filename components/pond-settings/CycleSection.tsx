@@ -7,7 +7,7 @@ import { CollapsibleSection } from "@/components/ui/Section";
 import { api, type BlindFeedingTemplate, type Cycle, type Pond, type Product } from "@/lib/api";
 import { closedEndDate, isReopened, normalizeConfig, pastCycles, statusLabel, statusText, todayDoc, cycleLabel, nextCycleName } from "@/lib/cycles";
 import { addDays, docFor, isoForDoc, niceDate, monthYear, todayIso } from "@/lib/dates";
-import { fmtInt, fmtNum } from "@/lib/num";
+import { fmtDec, fmtInt, fmtNum } from "@/lib/num";
 import { StockingEditor } from "./StockingEditor";
 import { crashReasonFromNotes, type CycleDraft, has, num } from "./types";
 
@@ -198,6 +198,25 @@ export function CycleSection({
   const [historyOpen, setHistoryOpen] = useState(() => !cycle);
   const [historyAll, setHistoryAll] = useState(false);
   const shown = historyAll ? past : past.slice(0, 5);
+
+  // Survival rate of each listed past cycle: the metric of its last day, fetched once the list is open.
+  // Keyed by cycle and end date, so finishing again on another day fetches it afresh.
+  const [survival, setSurvival] = useState<Record<string, string | null>>({});
+  const srKey = (c: Cycle) => `${c.id}:${closedEndDate(c, todayIso())}`;
+  const shownKey = shown.map(srKey).join(",");
+  useEffect(() => {
+    if (!historyOpen) return;
+    shown
+      .filter((c) => !(srKey(c) in survival))
+      .forEach((c) => {
+        const key = srKey(c);
+        api
+          .getCycleDay(c.id, closedEndDate(c, todayIso()))
+          .then((d) => setSurvival((m) => ({ ...m, [key]: d.metrics.survival_rate_pct })))
+          .catch(() => setSurvival((m) => ({ ...m, [key]: null })));
+      });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [historyOpen, shownKey]);
 
   // ----- reopen the last cycle (immediate) -----
   // Only the newest past cycle, and only while the pond runs nothing: a pond shows one current cycle.
@@ -514,6 +533,10 @@ export function CycleSection({
                         {days} days · ended {monthYear(end)}
                         {reason ? ` · ${reason}` : ""}
                       </span>
+                      {/* Its own slot: the details above truncate on a phone, the survival rate must not. */}
+                      {survival[srKey(c)] ? (
+                        <span className="shrink-0 font-mono text-[11px] font-semibold text-tx-soft">SR {fmtDec(survival[srKey(c)], 1)}%</span>
+                      ) : null}
                       <span className={`shrink-0 text-[11px] font-bold ${statusText(c.status)}`}>{statusLabel(c.status)}</span>
                       {canReopen && !reopenConfirm ? (
                         <button

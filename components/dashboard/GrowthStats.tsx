@@ -29,6 +29,7 @@ const ACCENT = "#2DD4BF";
 /** The 2x4 grid of growth/feed numbers, each opening a detail panel. */
 export function GrowthStats({
   startDate,
+  stocked,
   day,
   todayDay,
   growth,
@@ -37,6 +38,8 @@ export function GrowthStats({
   canLog,
 }: {
   startDate: string;
+  /** Stocked population, for the survival rate on an ended cycle's last day. */
+  stocked: number;
   day: DayView;
   /** Today's day view, for the "fed so far" point on the cumulative chart. */
   todayDay: DayView | null;
@@ -202,6 +205,16 @@ export function GrowthStats({
             </button>
           );
         })}
+        {/* The cycle's result, on its last day: the pond is emptied, so population reads 0 from here. */}
+        {day.metrics.survival_rate_pct !== null ? (
+          <div className="col-span-2 flex min-w-0 flex-col gap-[3px] rounded-[10px] border border-accent/40 bg-accent/[0.07] px-2.5 py-2">
+            <div className="text-[10px] uppercase tracking-[0.06em] text-tx-faint">Survival rate</div>
+            <div className="font-mono text-sm font-semibold text-tx-strong">{fmtDec(day.metrics.survival_rate_pct, 1)}%</div>
+            <div className="truncate font-mono text-[10px] text-tx-faint">
+              {fmtInt(day.metrics.harvested_count)} harvested of {fmtInt(stocked)} stocked
+            </div>
+          </div>
+        ) : null}
       </div>
       {open && openDetail ? (
         <DetailPanel

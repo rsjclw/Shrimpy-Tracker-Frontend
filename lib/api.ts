@@ -396,6 +396,10 @@ export type DayMetrics = {
   estimated_biomass_kg: string | null;
   harvest_biomass_kg: string;
   fcr: string | null;
+  /** Shrimp harvested up to this day. */
+  harvested_count: number;
+  /** Harvested over stocked, %: only on an ended cycle's last day. */
+  survival_rate_pct: string | null;
 };
 export type SamplingMetrics = {
   adg_g_per_day: string | null;
