@@ -1,4 +1,4 @@
-import type { DayView, Feeding, FeedingAdditive, FeedingFeedType, WaterParameterSourceKey } from "@/lib/api";
+import type { DayView, Feeding, FeedingAdditive, FeedingFeedType, Harvest, WaterParameterSourceKey } from "@/lib/api";
 import { hhmm } from "@/lib/dates";
 import { fmtNum, num } from "@/lib/num";
 import { SLOW_TRAY_MIN, outOfRange, shareTooHigh } from "@/lib/thresholds";
@@ -198,6 +198,31 @@ export function nextFeedHint(day: DayView | null, now: string): { label: string;
   const busyIdx = statuses.indexOf("inprogress");
   if (busyIdx >= 0) return { label: "", value: `${hhmm(sorted[busyIdx].feed_time)} in progress`, tone: "accent" };
   return { label: "", value: "All fed", tone: "good" };
+}
+
+// ---- Sampling from harvests ----
+
+export type HarvestSampling = {
+  /** Total harvested weight over total harvested count, 2 decimals: a big harvest counts for more than a small one. */
+  abw: number;
+  /** A minute after the last harvest, so the sample reads the pond after all of them; null when that is past 23:59. */
+  time: string | null;
+  lastTime: string;
+  kg: number;
+  count: number;
+  harvests: number;
+};
+
+/** The ABW sample a day's harvests give, or null when the day has none to go by. */
+export function samplingFromHarvests(harvests: Harvest[]): HarvestSampling | null {
+  const kg = harvests.reduce((t, h) => t + num(h.biomass_kg), 0);
+  const count = harvests.reduce((t, h) => t + h.estimated_count, 0);
+  if (!harvests.length || kg <= 0 || count <= 0) return null;
+  const lastTime = harvests.map((h) => hhmm(h.harvest_time)).sort().at(-1) ?? "00:00";
+  const [hh, mm] = lastTime.split(":").map(Number);
+  const next = hh * 60 + mm + 1;
+  const time = next < 24 * 60 ? `${String(Math.floor(next / 60)).padStart(2, "0")}:${String(next % 60).padStart(2, "0")}` : null;
+  return { abw: Math.round(((kg * 1000) / count) * 100) / 100, time, lastTime, kg, count, harvests: harvests.length };
 }
 
 /** Per-feed share of a day's total, in whole percent summing to 100. */

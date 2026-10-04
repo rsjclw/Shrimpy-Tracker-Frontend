@@ -10,6 +10,7 @@ import { daysBetween, docFor, fmt24, hhmm, nowHHMM, valid24 } from "@/lib/dates"
 import { decimalInput, fmtDec, fmtInt, intInput, num, rupiah, signed } from "@/lib/num";
 import { expandLines, factorToBase, stockByProduct, unitsFor } from "@/lib/products";
 import type { LogKind } from "./GrowthStats";
+import { samplingFromHarvests } from "./model";
 import type { Growth } from "./usePondData";
 
 type Perms = { canAdd: boolean; canManage: boolean };
@@ -145,6 +146,19 @@ export function SamplingHarvestLog({ ctx, requested, onRequestHandled }: { ctx: 
     setConfirmSave(false);
     setForm((fm) => (fm ? { ...fm, fields: { ...fm.fields, [k]: v } } : fm));
   };
+
+  // A sampling can be taken from the day's harvests; a day holds one ABW sample, so a new one replaces it.
+  const fromHarvests = samplingFromHarvests(day.harvests);
+  const useHarvests = () => {
+    if (!fromHarvests?.time) return;
+    const { time, abw } = fromHarvests;
+    setForm((fm) => (fm ? { ...fm, fields: { ...fm.fields, time, abw: abw.toFixed(2) } } : fm));
+  };
+  const replacing =
+    form?.kind === "sampling" &&
+    !form.editId &&
+    day.abw_g !== null &&
+    (form.fields.time !== hhmm(day.abw_sample_time) || num(form.fields.abw) !== num(day.abw_g));
   const valid = (fm: Form | null) => {
     if (!fm) return false;
     const f = fm.fields;
@@ -313,6 +327,28 @@ export function SamplingHarvestLog({ ctx, requested, onRequestHandled }: { ctx: 
                 ) : null}
                 {form.kind === "population" ? <FormField cycleId={ctx.cycleId} id="pop" label="New population" value={form.fields.pop} mode="numeric" placeholder="0" onChange={(v) => setField("pop", intInput(v))} /> : null}
               </div>
+              {form.kind === "sampling" && fromHarvests ? (
+                <div className="flex flex-col items-start gap-1">
+                  <button
+                    type="button"
+                    onClick={useHarvests}
+                    disabled={!fromHarvests.time}
+                    className="rounded-md border border-warn/50 px-2.5 py-[5px] text-[11px] font-semibold text-warn disabled:opacity-40"
+                  >
+                    Use harvest data
+                  </button>
+                  <span className="font-mono text-[10px] text-tx-muted">
+                    {fromHarvests.time
+                      ? `From ${fromHarvests.harvests} harvest${fromHarvests.harvests === 1 ? "" : "s"}: ${fmtDec(fromHarvests.kg, 1)} kg, ~${fmtInt(fromHarvests.count)} shrimp → ${fromHarvests.abw.toFixed(2)} g, after ${fromHarvests.lastTime}`
+                      : `The last harvest is at ${fromHarvests.lastTime}; there is no later time that day for the sample.`}
+                  </span>
+                </div>
+              ) : null}
+              {replacing ? (
+                <span className="text-[11px] text-warn">
+                  Replaces this day&apos;s {hhmm(day.abw_sample_time) || "—"} sample ({fmtDec(day.abw_g, 2)} g): a day holds one ABW sample.
+                </span>
+              ) : null}
               {preview.length ? (
                 <div className="flex flex-col gap-[3px]">
                   {preview.map((p) => (
