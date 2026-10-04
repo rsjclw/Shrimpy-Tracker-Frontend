@@ -6,7 +6,7 @@ import { Banner, ConfirmStrip } from "@/components/ui/Field";
 import { Icon } from "@/components/ui/Icon";
 import { api, type DayView, type Harvest, type Product, type Treatment, type WarehouseInventory } from "@/lib/api";
 import { load, peek, put } from "@/lib/cache";
-import { daysBetween, docFor, fmt24, hhmm, nowHHMM, shortDate, valid24 } from "@/lib/dates";
+import { daysBetween, docFor, fmt24, hhmm, nowHHMM, shortDate, todayIso, valid24 } from "@/lib/dates";
 import { decimalInput, fmtDec, fmtInt, intInput, num, rupiah, signed } from "@/lib/num";
 import { expandLines, factorToBase, stockByProduct, unitsFor } from "@/lib/products";
 import type { LogKind } from "./GrowthStats";
@@ -56,7 +56,8 @@ export function SamplingHarvestLog({ ctx, requested, onRequestHandled }: { ctx: 
 
   const doc = (iso: string) => docFor(ctx.startDate, iso);
   // Harvests only change on the cycle's last harvest day; an earlier harvest day is closed (the backend refuses too).
-  const lastHarvestDay = growth?.harvests.at(-1)?.date ?? null;
+  // Harvests dated after today are predictions or plans and close nothing.
+  const lastHarvestDay = growth?.harvests.filter((h) => h.date <= todayIso()).at(-1)?.date ?? null;
   const harvestLocked = !!lastHarvestDay && day.date < lastHarvestDay;
 
   useEffect(() => {
