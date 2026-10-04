@@ -168,7 +168,16 @@ export function PondSummary({ days, growth, today, now }: { days: DayView[]; gro
         <Items
           items={[
             { id: "abw", name: "ABW", values: plain(last ? `${fmtDec(last.abw, 1)} g` : "—"), age: last ? daysBetween(last.date, today) : null },
+            // ADG between the last two samplings, as the open card's ADG tile; same sampling, so one shared age.
+            { id: "adg", name: "ADG", values: plain(last?.adg !== null && last?.adg !== undefined ? `${last.adg.toFixed(2)} g/day` : "—"), age: last ? daysBetween(last.date, today) : null },
+          ]}
+        />
+      </Line>
+      <Line label="">
+        <Items
+          items={[
             { id: "biomass", name: "Biomass", values: plain(biomass) },
+            { id: "pop", name: "Pop", values: plain(day && day.metrics.estimated_population !== null ? fmtInt(day.metrics.estimated_population) : "—") },
           ]}
         />
       </Line>
