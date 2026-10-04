@@ -657,6 +657,13 @@ export const api = {
     id: string,
     b: {
       name?: string;
+      start_date?: string;
+      initial_population?: number;
+      initial_abw_g?: number;
+      blind_feeding_template_id?: string | null;
+      blind_feeding_target_abw_g?: number | null;
+      /** Rewrite the blind feeding from the (new) start, population, template and target; otherwise feedings stay put. */
+      recalculate_blind_feeding?: boolean;
       planned_end_date?: string | null;
       actual_end_date?: string | null;
       status?: string;

@@ -121,7 +121,7 @@ export function FeedingProgramSection({
             <div className="rounded-[10px] bg-ink-850 px-3 py-2.5 text-xs text-tx-dim">No blind feeding template set for this cycle.</div>
           )}
           <span className="text-[11px] text-tx-faint">
-            Set when the cycle starts. Templates are managed in{" "}
+            Change it with Edit stocking in the Cycle section. Templates are managed in{" "}
             <Link href={`/farms/${farmId}/settings`} className="underline">
               Farm settings
             </Link>

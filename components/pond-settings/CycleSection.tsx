@@ -8,6 +8,7 @@ import { api, type BlindFeedingTemplate, type Cycle, type Pond, type Product } f
 import { closedEndDate, isReopened, normalizeConfig, pastCycles, statusLabel, statusText, todayDoc, cycleLabel, nextCycleName } from "@/lib/cycles";
 import { addDays, docFor, isoForDoc, niceDate, monthYear, todayIso } from "@/lib/dates";
 import { fmtInt, fmtNum } from "@/lib/num";
+import { StockingEditor } from "./StockingEditor";
 import { crashReasonFromNotes, type CycleDraft, has, num } from "./types";
 
 function errorText(err: unknown): string {
@@ -36,6 +37,7 @@ export function CycleSection({
   open,
   onToggle,
   readOnly,
+  pageDirty,
   onReload,
 }: {
   pond: Pond;
@@ -48,6 +50,8 @@ export function CycleSection({
   open: boolean;
   onToggle: () => void;
   readOnly: boolean;
+  /** Unsaved edits elsewhere on the page, which a reload after an immediate action would drop. */
+  pageDirty: boolean;
   onReload: () => Promise<void>;
 }) {
   const past = pastCycles(cycles, pond.id);
@@ -60,6 +64,7 @@ export function CycleSection({
   const [endDate, setEndDate] = useState(todayIso());
   const [actionBusy, setActionBusy] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [editingStock, setEditingStock] = useState(false);
   const endOk = !!cycle && !!endDate && endDate >= cycle.start_date && endDate <= todayIso();
 
   function openConfirm(kind: "finish" | "crash") {
@@ -295,13 +300,31 @@ export function CycleSection({
                   return `Preparation ${niceDate(addDays(cycle.start_date, -n))} → ${niceDate(cycle.start_date)} (${n} days)`;
                 })()}
               </span>
-              <div className="flex gap-4 pt-1 font-mono text-xs text-tx-dim">
+              <div className="flex items-center gap-4 pt-1 font-mono text-xs text-tx-dim">
                 <span>Stocked {fmtInt(cycle.initial_population)}</span>
                 <span>Initial ABW {fmtNum(cycle.initial_abw_g, 3)} g</span>
+                {!readOnly && !editingStock && !confirm ? (
+                  <button type="button" onClick={() => setEditingStock(true)} className="ml-auto font-sans text-xs font-bold text-accent">
+                    Edit stocking
+                  </button>
+                ) : null}
               </div>
             </div>
 
-            {!readOnly && !confirm ? (
+            {editingStock ? (
+              <StockingEditor
+                cycle={cycle}
+                templates={templates}
+                blocked={pageDirty}
+                onCancel={() => setEditingStock(false)}
+                onSaved={async () => {
+                  setEditingStock(false);
+                  await onReload();
+                }}
+              />
+            ) : null}
+
+            {!readOnly && !confirm && !editingStock ? (
               <div className="grid grid-cols-2 gap-2">
                 <Button variant="outline" onClick={() => openConfirm("finish")} className="!text-accent !border-accent">
                   Finish cycle

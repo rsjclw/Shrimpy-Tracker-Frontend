@@ -273,6 +273,7 @@ export default function PondSettingsPage() {
         open={open.cycle}
         onToggle={() => toggle("cycle")}
         readOnly={readOnly}
+        pageDirty={dirty}
         onReload={reload}
       />
 
