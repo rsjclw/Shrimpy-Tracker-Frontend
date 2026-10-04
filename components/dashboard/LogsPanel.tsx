@@ -6,7 +6,7 @@ import { Banner, ConfirmStrip } from "@/components/ui/Field";
 import { Icon } from "@/components/ui/Icon";
 import { api, type DayView, type Harvest, type Product, type Treatment, type WarehouseInventory } from "@/lib/api";
 import { load, peek, put } from "@/lib/cache";
-import { daysBetween, docFor, fmt24, hhmm, nowHHMM, valid24 } from "@/lib/dates";
+import { daysBetween, docFor, fmt24, hhmm, nowHHMM, shortDate, valid24 } from "@/lib/dates";
 import { decimalInput, fmtDec, fmtInt, intInput, num, rupiah, signed } from "@/lib/num";
 import { expandLines, factorToBase, stockByProduct, unitsFor } from "@/lib/products";
 import type { LogKind } from "./GrowthStats";
@@ -54,16 +54,19 @@ export function SamplingHarvestLog({ ctx, requested, onRequestHandled }: { ctx: 
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
   const [confirmSave, setConfirmSave] = useState(false);
 
+  const doc = (iso: string) => docFor(ctx.startDate, iso);
+  // Harvests only change on the cycle's last harvest day; an earlier harvest day is closed (the backend refuses too).
+  const lastHarvestDay = growth?.harvests.at(-1)?.date ?? null;
+  const harvestLocked = !!lastHarvestDay && day.date < lastHarvestDay;
+
   useEffect(() => {
     if (!requested) return;
-    // Opened from a quick-stat "+" action: expand and start that form once.
+    // Opened from a quick-stat "+" action: expand and start that form once (not a harvest on a closed day).
     setOpen(true);
-    startForm(requested);
+    if (!(requested === "harvest" && harvestLocked)) startForm(requested);
     onRequestHandled();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [requested]);
-
-  const doc = (iso: string) => docFor(ctx.startDate, iso);
   const samplings = (growth?.samplings ?? []).filter((s) => s.date <= day.date);
   const lastSampling = samplings.at(-1) ?? null;
   const prevSampling = samplings.filter((s) => s.date < day.date).at(-1) ?? null;
@@ -232,7 +235,7 @@ export function SamplingHarvestLog({ ctx, requested, onRequestHandled }: { ctx: 
     .filter(Boolean)
     .join(" · ");
 
-  const addable = (["sampling", "harvest", "population"] as LogKind[]).filter((k) => canLogKind(perms, k));
+  const addable = (["sampling", "harvest", "population"] as LogKind[]).filter((k) => canLogKind(perms, k) && !(k === "harvest" && harvestLocked));
 
   return (
     <div className="flex flex-col gap-2">
@@ -251,7 +254,7 @@ export function SamplingHarvestLog({ ctx, requested, onRequestHandled }: { ctx: 
           {rows.map((r) => {
             const isOpen = row === r.id;
             const k = KIND[r.kind];
-            const editable = perms.canManage;
+            const editable = perms.canManage && !(r.kind === "harvest" && harvestLocked);
             return (
               <div key={r.id} className={`rounded-[10px] border bg-ink-850 ${isOpen ? k.border : "border-ink-850"}`}>
                 <button type="button" onClick={() => setRow(isOpen ? null : r.id)} aria-expanded={isOpen} aria-label={`${k.label} details`} className="flex w-full items-center gap-2 px-[11px] py-[9px] text-left">
@@ -299,6 +302,11 @@ export function SamplingHarvestLog({ ctx, requested, onRequestHandled }: { ctx: 
             );
           })}
           {rows.length === 0 && !form ? <div className="px-0.5 py-1 text-xs text-tx-faint">Nothing logged on this day.</div> : null}
+          {harvestLocked && lastHarvestDay ? (
+            <div className="px-0.5 text-[11px] text-tx-muted">
+              Harvests before the last harvest day (DOC {doc(lastHarvestDay)} · {shortDate(lastHarvestDay)}) can&apos;t be changed.
+            </div>
+          ) : null}
 
           {form ? (
             <div className="flex flex-col gap-2.5 rounded-xl border border-accent bg-ink-850 p-3">
