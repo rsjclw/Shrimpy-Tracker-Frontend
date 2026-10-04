@@ -6,6 +6,7 @@ import { api, type Cycle, type DayView, type TrendSeries } from "@/lib/api";
 import { load, markAllStale, peek } from "@/lib/cache";
 import { cachedDay, fetchDays, isDayFresh, windowFor } from "@/lib/dayViews";
 import { addDays, daysBetween, todayIso } from "@/lib/dates";
+import { cycleFloor } from "@/lib/cycles";
 import { num } from "@/lib/num";
 
 export type Sampling = { date: string; abw: number; adg: number | null; fcr: number | null };
@@ -68,6 +69,8 @@ export function usePondData(cycle: Cycle, viewDate: string, maxDate: string, ena
   const [error, setError] = useState<string | null>(null);
 
   const growthTo = viewDate > todayIso() ? viewDate : todayIso();
+  // Day windows reach back into preparation for a cycle that started with it.
+  const floor = cycleFloor(cycle);
   const growthKey = `growth:${cycle.id}:${growthTo}`;
   const [growth, setGrowth] = useState<Growth | null>(() => peek<Growth>(growthKey)?.value ?? null);
 
@@ -77,11 +80,11 @@ export function usePondData(cycle: Cycle, viewDate: string, maxDate: string, ena
 
     const prefetchNeighbours = () => {
       const next = addDays(viewDate, 1);
-      const around = [...windowFor(addDays(viewDate, -1), cycle.start_date), ...(next <= maxDate ? [next] : [])];
+      const around = [...windowFor(addDays(viewDate, -1), floor), ...(next <= maxDate ? [next] : [])];
       fetchDays(cycle.id, around).catch(() => {});
     };
 
-    const wanted = windowFor(viewDate, cycle.start_date);
+    const wanted = windowFor(viewDate, floor);
     const fromCache = () => wanted.map((d) => cachedDay(cycle.id, d)).filter((d): d is DayView => !!d);
     const cached = fromCache();
     const complete = cached.length === wanted.length;
@@ -108,7 +111,7 @@ export function usePondData(cycle: Cycle, viewDate: string, maxDate: string, ena
     return () => {
       cancelled = true;
     };
-  }, [cycle.id, cycle.start_date, viewDate, maxDate, version, enabled]);
+  }, [cycle.id, cycle.start_date, floor, viewDate, maxDate, version, enabled]);
 
   useEffect(() => {
     if (!enabled) return;
@@ -137,7 +140,7 @@ export function usePondData(cycle: Cycle, viewDate: string, maxDate: string, ena
   // A step onto cached days reads straight from the cache, so the first render already has the day.
   let current = days;
   if (current[0]?.date !== viewDate) {
-    const fromCache = windowFor(viewDate, cycle.start_date).map((d) => cachedDay(cycle.id, d));
+    const fromCache = windowFor(viewDate, floor).map((d) => cachedDay(cycle.id, d));
     if (fromCache.every(Boolean)) current = fromCache as DayView[];
   }
   const day = current[0]?.date === viewDate ? current[0] : null;

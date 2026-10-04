@@ -1,8 +1,9 @@
 import type { Cycle, PredictionConfig } from "./api";
 import { docFor, todayIso } from "./dates";
 
-// Cycle statuses: the backend stores free text. The UI writes these three.
-export type CycleStatus = "active" | "completed" | "crashed";
+// Cycle statuses: the backend stores free text. The UI writes these.
+// "preparing": the pond is being prepared, not yet stocked. "cancelled": a preparation never stocked.
+export type CycleStatus = "preparing" | "active" | "completed" | "crashed" | "cancelled";
 
 /** "3" reads as "Cycle 3"; free-text names are shown as typed. */
 export function cycleLabel(cycle: Pick<Cycle, "name">): string {
@@ -11,6 +12,21 @@ export function cycleLabel(cycle: Pick<Cycle, "name">): string {
 
 export function isActive(cycle: Cycle): boolean {
   return cycle.status === "active";
+}
+
+/** Pond preparation under way: no shrimp yet, only water and treatments are logged. */
+export function isPreparing(cycle: Cycle): boolean {
+  return cycle.status === "preparing";
+}
+
+/** The first day that can hold logs: preparation's first day, or stocking. */
+export function cycleFloor(cycle: Cycle): string {
+  return cycle.prep_start_date ?? cycle.start_date;
+}
+
+/** "Prep day 1" is the day preparation began. */
+export function prepDay(cycle: Cycle, iso: string): number {
+  return docFor(cycle.prep_start_date ?? cycle.start_date, iso);
 }
 
 /** Finished, then reopened to fill in missing logs: active again, but it keeps the end date it had. */
@@ -31,9 +47,10 @@ export function closedEndDate(cycle: Cycle, today: string): string {
 
 /** Newest first by start date. */
 export function byStartDesc(a: Cycle, b: Cycle): number {
-  // Same start day: the one still running, then the one that ended last, comes first.
+  // By the day each cycle began: preparation's first day when it had one, else stocking.
+  // Same day: the one still running, then the one that ended last, comes first.
   return (
-    b.start_date.localeCompare(a.start_date) ||
+    cycleFloor(b).localeCompare(cycleFloor(a)) ||
     (b.actual_end_date ?? "9999").localeCompare(a.actual_end_date ?? "9999") ||
     (Number(b.name) || 0) - (Number(a.name) || 0)
   );
@@ -50,7 +67,8 @@ export function nextCycleName(cycles: Cycle[], pondId: string): string {
  * A pond can hold several "active" rows (old data), so pick the newest.
  */
 export function currentCycle(cycles: Cycle[], pondId: string): Cycle | null {
-  return cycles.filter((c) => c.pond_id === pondId && isActive(c)).sort(byStartDesc)[0] ?? null;
+  // Preparing counts as current too: the pond is being worked on.
+  return cycles.filter((c) => c.pond_id === pondId && (isActive(c) || isPreparing(c))).sort(byStartDesc)[0] ?? null;
 }
 
 /** Every cycle of a pond except the current one, newest first. */
@@ -77,6 +95,8 @@ export function targetDoc(cycle: Cycle): number | null {
 
 export function statusLabel(status: string): string {
   if (status === "active") return "Active";
+  if (status === "preparing") return "Preparing";
+  if (status === "cancelled") return "Cancelled";
   if (status === "completed") return "Finished";
   if (status === "crashed") return "Crashed";
   return status.charAt(0).toUpperCase() + status.slice(1);
@@ -85,6 +105,7 @@ export function statusLabel(status: string): string {
 /** Tailwind text colour for a cycle status. */
 export function statusText(status: string): string {
   if (status === "active") return "text-accent";
+  if (status === "preparing") return "text-violet";
   if (status === "crashed") return "text-bad";
   return "text-tx-muted";
 }

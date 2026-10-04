@@ -5,7 +5,7 @@ import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/Button";
 import { api, type Cycle, type CycleSummary } from "@/lib/api";
 import { closedEndDate, cycleLabel, statusLabel, statusText } from "@/lib/cycles";
-import { docFor, hhmm, monthYear, niceDate, shortDate, todayIso } from "@/lib/dates";
+import { daysBetween, docFor, hhmm, monthYear, niceDate, shortDate, todayIso } from "@/lib/dates";
 import { fmtDec, fmtInt, fmtNum, num, rupiah } from "@/lib/num";
 import { crashReasonFromNotes } from "./types";
 
@@ -100,7 +100,7 @@ export function PastCycles({ past, allowReopen, onReload }: { past: Cycle[]; all
   useEffect(() => {
     if (!open) return;
     shown
-      .filter((c) => !(key(c) in summaries))
+      .filter((c) => c.initial_population !== null && !(key(c) in summaries))
       .forEach((c) => {
         const k = key(c);
         setSummaries((m) => ({ ...m, [k]: "loading" }));
@@ -123,8 +123,13 @@ export function PastCycles({ past, allowReopen, onReload }: { past: Cycle[]; all
     setReopenBusy(true);
     setReopenError(null);
     try {
-      // Send the end date along: the backend clears it on reopen otherwise, and the cycle would run on to today.
-      await api.updateCycle(reopenable.id, { status: "active", actual_end_date: closedEndDate(reopenable, todayIso()) });
+      if (reopenable.initial_population === null) {
+        // Never stocked: it goes back to preparing, open-ended like any preparation.
+        await api.updateCycle(reopenable.id, { status: "preparing" });
+      } else {
+        // Send the end date along: the backend clears it on reopen otherwise, and the cycle would run on to today.
+        await api.updateCycle(reopenable.id, { status: "active", actual_end_date: closedEndDate(reopenable, todayIso()) });
+      }
       setReopenConfirm(false);
       await onReload();
     } catch (err) {
@@ -158,7 +163,9 @@ export function PastCycles({ past, allowReopen, onReload }: { past: Cycle[]; all
         <div className="flex flex-col gap-1.5">
           {shown.map((c) => {
             const end = c.actual_end_date ?? c.planned_end_date ?? c.start_date;
-            const days = docFor(c.start_date, end);
+            // A preparation cancelled before stocking: counted in preparation days, with no results.
+            const neverStocked = c.initial_population === null;
+            const days = neverStocked ? daysBetween(c.prep_start_date ?? end, end) + 1 : docFor(c.start_date, end);
             const reason = c.status === "crashed" ? crashReasonFromNotes(c.notes) : "";
             const canReopen = reopenable?.id === c.id;
             const s = summaries[key(c)];
@@ -169,7 +176,7 @@ export function PastCycles({ past, allowReopen, onReload }: { past: Cycle[]; all
                   <div className="flex items-center gap-2.5">
                     <span className="w-16 shrink-0 text-[13px] font-semibold text-tx">{cycleLabel(c)}</span>
                     <span className="min-w-0 flex-grow truncate text-xs text-tx-dim">
-                      {days} days · ended {monthYear(end)}
+                      {neverStocked ? `${days} prep days` : `${days} days`} · ended {monthYear(end)}
                       {reason ? ` · ${reason}` : ""}
                     </span>
                     <span className={`shrink-0 text-[11px] font-bold ${statusText(c.status)}`}>{statusLabel(c.status)}</span>
@@ -182,22 +189,24 @@ export function PastCycles({ past, allowReopen, onReload }: { past: Cycle[]; all
                         }}
                         className="shrink-0 rounded-full border border-accent px-2.5 py-1 text-[11px] font-bold text-accent"
                       >
-                        Reopen
+                        {neverStocked ? "Resume" : "Reopen"}
                       </button>
                     ) : null}
-                    <button
-                      type="button"
-                      aria-expanded={isOpen}
-                      aria-label={`${cycleLabel(c)} details`}
-                      onClick={() => setExpanded(isOpen ? null : c.id)}
-                      className="-mr-1 flex h-7 w-7 shrink-0 items-center justify-center text-tx-dim"
-                    >
-                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" className={`transition-transform ${isOpen ? "rotate-180" : ""}`}>
-                        <path d="M6 9l6 6 6-6" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" />
-                      </svg>
-                    </button>
+                    {neverStocked ? null : (
+                      <button
+                        type="button"
+                        aria-expanded={isOpen}
+                        aria-label={`${cycleLabel(c)} details`}
+                        onClick={() => setExpanded(isOpen ? null : c.id)}
+                        className="-mr-1 flex h-7 w-7 shrink-0 items-center justify-center text-tx-dim"
+                      >
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" className={`transition-transform ${isOpen ? "rotate-180" : ""}`}>
+                          <path d="M6 9l6 6 6-6" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" />
+                        </svg>
+                      </button>
+                    )}
                   </div>
-                  {s === undefined || s === "loading" ? (
+                  {neverStocked ? null : s === undefined || s === "loading" ? (
                     <span className="text-[11px] text-tx-faint">Loading results…</span>
                   ) : s === "error" ? (
                     <span className="text-[11px] text-bad">Couldn&apos;t load this cycle&apos;s results.</span>
@@ -210,17 +219,24 @@ export function PastCycles({ past, allowReopen, onReload }: { past: Cycle[]; all
                 </div>
                 {canReopen && reopenConfirm ? (
                   <div className="flex flex-col gap-2.5 rounded-xl border border-warn/40 bg-warn/[0.07] p-3">
-                    <span className="text-[13px] text-tx">
-                      Reopen {cycleLabel(c)}? It becomes the active cycle again so you can add missing logs. It keeps its end date,{" "}
-                      {niceDate(closedEndDate(c, todayIso()))}. Finish it again when you&apos;re done.
-                    </span>
+                    {neverStocked ? (
+                      <span className="text-[13px] text-tx">
+                        Resume preparing {cycleLabel(c)}? It becomes the pond&apos;s cycle again, still preparing, with its water and treatment logs. Stock
+                        the pond when the shrimp go in.
+                      </span>
+                    ) : (
+                      <span className="text-[13px] text-tx">
+                        Reopen {cycleLabel(c)}? It becomes the active cycle again so you can add missing logs. It keeps its end date,{" "}
+                        {niceDate(closedEndDate(c, todayIso()))}. Finish it again when you&apos;re done.
+                      </span>
+                    )}
                     {reopenError ? <span className="text-xs text-bad">{reopenError}</span> : null}
                     <div className="flex justify-end gap-1.5">
                       <Button variant="secondary" size="sm" onClick={() => setReopenConfirm(false)} disabled={reopenBusy}>
                         Cancel
                       </Button>
                       <Button variant="primary" size="sm" onClick={doReopen} disabled={reopenBusy}>
-                        Reopen cycle
+                        {neverStocked ? "Resume preparing" : "Reopen cycle"}
                       </Button>
                     </div>
                   </div>

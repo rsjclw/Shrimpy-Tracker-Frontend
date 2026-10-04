@@ -5,11 +5,12 @@ import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/Button";
 import { CollapsibleSection } from "@/components/ui/Section";
 import { api, type BlindFeedingTemplate, type Cycle, type Pond, type Product } from "@/lib/api";
-import { isReopened, normalizeConfig, pastCycles, statusLabel, todayDoc, cycleLabel, nextCycleName } from "@/lib/cycles";
-import { addDays, docFor, isoForDoc, niceDate, todayIso } from "@/lib/dates";
+import { isPreparing, isReopened, normalizeConfig, pastCycles, prepDay, statusLabel, todayDoc, cycleLabel, nextCycleName } from "@/lib/cycles";
+import { addDays, daysBetween, docFor, isoForDoc, niceDate, todayIso } from "@/lib/dates";
 import { fmtInt, fmtNum } from "@/lib/num";
 import { FinishPreview, finishBlocked, useFinishCheck } from "./FinishPreview";
 import { PastCycles } from "./PastCycles";
+import { PrepCard } from "./PrepCard";
 import { StockingEditor } from "./StockingEditor";
 import { type CycleDraft, has, num } from "./types";
 
@@ -40,6 +41,7 @@ export function CycleSection({
   onToggle,
   readOnly,
   pageDirty,
+  autoStock,
   onReload,
 }: {
   pond: Pond;
@@ -54,6 +56,8 @@ export function CycleSection({
   readOnly: boolean;
   /** Unsaved edits elsewhere on the page, which a reload after an immediate action would drop. */
   pageDirty: boolean;
+  /** Open a preparing cycle's stocking form straight away. */
+  autoStock: boolean;
   onReload: () => Promise<void>;
 }) {
   const past = pastCycles(cycles, pond.id);
@@ -128,6 +132,47 @@ export function CycleSection({
   const copying = copyTargets && !!prevCycle?.prediction_config;
   const [startBusy, setStartBusy] = useState(false);
   const [startError, setStartError] = useState<string | null>(null);
+  // A new cycle normally starts with pond preparation; "Stock now" skips it.
+  const [startMode, setStartMode] = useState<"prepare" | "stock">("prepare");
+  const prevPrepDays = prevCycle?.prediction_config ? Math.trunc(num(normalizeConfig(prevCycle.prediction_config).cycle.preparation_day)) || 14 : 14;
+  const [newPrepStart, setNewPrepStart] = useState(todayIso());
+  const [newPlanned, setNewPlanned] = useState(addDays(todayIso(), prevPrepDays));
+  const prepErrors: string[] = [];
+  if (!newName.trim()) prepErrors.push("Cycle name is empty");
+  if (!newPrepStart || newPrepStart > todayIso()) prepErrors.push("Preparation starts today or earlier");
+  else if (!newPlanned || newPlanned < newPrepStart) prepErrors.push("The planned stocking day can't be before preparation starts");
+
+  async function startPreparing() {
+    if (prepErrors.length) return;
+    setStartBusy(true);
+    setStartError(null);
+    try {
+      const config = copyTargets && prevCycle?.prediction_config
+        ? (() => {
+            const c = normalizeConfig(prevCycle.prediction_config);
+            return { ...c, cycle: { ...c.cycle, preparation_day: daysBetween(newPrepStart, newPlanned) } };
+          })()
+        : null;
+      const plannedEnd = copyTargets && prevCycle?.planned_end_date ? isoForDoc(newPlanned, docFor(prevCycle.start_date, prevCycle.planned_end_date)) : undefined;
+      await api.createCycle({
+        pond_id: pond.id,
+        name: newName.trim(),
+        status: "preparing",
+        prep_start_date: newPrepStart,
+        start_date: newPlanned,
+        ...(config ? { feeding_index_increment: config.growth.feeding_index_increment, maximum_feeding_index: config.growth.maximum_feeding_index } : {}),
+        ...(plannedEnd ? { planned_end_date: plannedEnd } : {}),
+        ...(config && config.feed_plan.length >= 1 ? { prediction_config: config } : {}),
+      });
+      setNewName("");
+      setCopyTargets(true);
+      await onReload();
+    } catch (err) {
+      setStartError(errorText(err));
+    } finally {
+      setStartBusy(false);
+    }
+  }
 
   // Refresh the "start next cycle" suggestions whenever the active cycle just
   // ended (finish/crash reload), rather than only once at first mount.
@@ -198,7 +243,9 @@ export function CycleSection({
     }
   }
 
-  const summary = cycle
+  const summary = cycle && isPreparing(cycle)
+    ? `${cycleLabel(cycle)} · preparing, day ${prepDay(cycle, todayIso())} · stocking planned ${niceDate(cycle.start_date)}`
+    : cycle
     ? `${cycleLabel({ name: draft?.name || cycle.name })} · DOC ${todayDoc(cycle)}${draft?.finalDoc ? ` of ${draft.finalDoc}` : ""} · ${draft?.prepDays ?? "0"}d prep · started ${niceDate(cycle.start_date)}`
     : `${prevCycle ? `${cycleLabel(prevCycle)} ${statusLabel(prevCycle.status).toLowerCase()}` : "No cycles yet"}${suggestedName ? ` · ready for ${cycleLabel({ name: suggestedName })}` : ""}`;
 
@@ -211,7 +258,9 @@ export function CycleSection({
     <CollapsibleSection title="Cycle" summary={summary} open={open} onToggle={onToggle}>
       <div className="flex flex-col gap-3.5 px-0.5 py-1">
         <PastCycles past={past} allowReopen={!cycle && !readOnly} onReload={onReload} />
-        {cycle && draft ? (
+        {cycle && isPreparing(cycle) ? (
+          <PrepCard cycle={cycle} templates={templates} readOnly={readOnly} autoStock={autoStock} onReload={onReload} />
+        ) : cycle && draft ? (
           <>
             <div className="flex flex-col gap-2.5 rounded-2xl border border-line bg-ink-850 p-3.5">
               <div className="flex items-baseline justify-between gap-2">
@@ -262,8 +311,9 @@ export function CycleSection({
                     id="c-prep"
                     type="text"
                     inputMode="numeric"
-                    value={draft.prepDays}
-                    disabled={readOnly}
+                    value={cycle.prep_start_date ? String(daysBetween(cycle.prep_start_date, cycle.start_date)) : draft.prepDays}
+                    disabled={readOnly || !!cycle.prep_start_date}
+                    title={cycle.prep_start_date ? "Measured: from the day preparation started to stocking" : undefined}
                     onChange={(e) => onChangeDraft({ ...draft, prepDays: e.target.value.replace(/[^0-9]/g, "") })}
                     className={`input font-mono ${!/^\d+$/.test(draft.prepDays || "") ? "input-error" : ""}`}
                   />
@@ -274,6 +324,9 @@ export function CycleSection({
                   const n = Math.trunc(num(draft.prepDays));
                   if (!Number.isFinite(n)) return "";
                   if (n === 0) return "No preparation period";
+                  if (cycle.prep_start_date) {
+                    return `Preparation ${niceDate(cycle.prep_start_date)} → ${niceDate(cycle.start_date)} (${daysBetween(cycle.prep_start_date, cycle.start_date)} days, measured)`;
+                  }
                   return `Preparation ${niceDate(addDays(cycle.start_date, -n))} → ${niceDate(cycle.start_date)} (${n} days)`;
                 })()}
               </span>
@@ -372,6 +425,59 @@ export function CycleSection({
         {!cycle && !readOnly ? (
           <div className="flex flex-col gap-2.5 rounded-2xl border border-dashed border-line-dash bg-ink-850 p-3.5">
             <span className="text-[15px] font-bold text-tx-strong">Start {newName.trim() ? newName.trim() : "new cycle"}</span>
+            <div className="grid grid-cols-2 gap-1 rounded-[10px] bg-ink-800 p-1" role="tablist">
+              {(["prepare", "stock"] as const).map((m) => (
+                <button
+                  key={m}
+                  type="button"
+                  role="tab"
+                  aria-selected={startMode === m}
+                  onClick={() => setStartMode(m)}
+                  className={`rounded-lg px-2 py-1.5 text-xs font-bold ${startMode === m ? "bg-ink-850 text-tx-strong" : "text-tx-faint"}`}
+                >
+                  {m === "prepare" ? "Start preparing" : "Stock now"}
+                </button>
+              ))}
+            </div>
+            {startMode === "prepare" ? (
+              <>
+                <div className="flex flex-col gap-1">
+                  <label htmlFor="c-prep-name" className="field-label">
+                    Cycle name
+                  </label>
+                  <input id="c-prep-name" type="text" value={newName} onChange={(e) => setNewName(e.target.value)} className="input font-mono font-semibold" />
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  <div className="flex min-w-0 flex-col gap-1">
+                    <label htmlFor="c-prep-start" className="field-label">
+                      Preparation starts
+                    </label>
+                    <input id="c-prep-start" type="date" value={newPrepStart} max={todayIso()} onChange={(e) => setNewPrepStart(e.target.value)} className="input font-mono" />
+                  </div>
+                  <div className="flex min-w-0 flex-col gap-1">
+                    <label htmlFor="c-prep-planned" className="field-label">
+                      Planned stocking
+                    </label>
+                    <input id="c-prep-planned" type="date" value={newPlanned} min={newPrepStart} onChange={(e) => setNewPlanned(e.target.value)} className="input font-mono" />
+                  </div>
+                </div>
+                <span className="text-[11px] text-tx-faint">
+                  Log water and treatments while preparing; stock the pond when the shrimp go in, with its population, ABW and blind feeding.
+                </span>
+                {prevCycle ? (
+                  <label className="flex cursor-pointer items-center gap-2.5 text-[13px] text-tx-soft">
+                    <input type="checkbox" checked={copyTargets} onChange={(e) => setCopyTargets(e.target.checked)} className="h-[18px] w-[18px] accent-accent" />
+                    Copy targets and feeding program from {cycleLabel(prevCycle)}
+                  </label>
+                ) : null}
+                {prepErrors.length ? <span className="text-xs text-bad">{prepErrors[0]}</span> : null}
+                {startError ? <span className="text-xs text-bad">{startError}</span> : null}
+                <Button variant="primary" size="lg" block onClick={startPreparing} disabled={startBusy || prepErrors.length > 0}>
+                  Start preparing
+                </Button>
+              </>
+            ) : (
+              <>
             <div className="flex flex-col gap-1">
               <label htmlFor="c-new-name" className="field-label">
                 Cycle name
@@ -455,6 +561,8 @@ export function CycleSection({
             <Button variant="primary" size="lg" block onClick={startCycle} disabled={startBusy || startErrors.length > 0}>
               Start new cycle
             </Button>
+              </>
+            )}
           </div>
         ) : null}
         {!cycle && readOnly ? <span className="text-xs text-tx-dim">No active cycle.</span> : null}

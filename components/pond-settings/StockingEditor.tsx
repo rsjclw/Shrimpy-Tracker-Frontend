@@ -64,6 +64,7 @@ export function StockingEditor({
 
   const errors: string[] = [];
   if (!d.start || d.start > today) errors.push("Start date must be today or earlier");
+  else if (cycle.prep_start_date && d.start < cycle.prep_start_date) errors.push(`Start date can't be before preparation started (${shortDate(cycle.prep_start_date)})`);
   else if (cycle.actual_end_date && d.start > cycle.actual_end_date) errors.push("Start date must be on or before the cycle's end");
   if (!(Number.isInteger(pop) && pop > 0)) errors.push("Stocked population must be a whole number above 0");
   if (!(has(d.abw) && abw >= 0)) errors.push("Initial ABW must be a number");
@@ -147,6 +148,7 @@ export function StockingEditor({
           id="s-start"
           type="date"
           value={d.start}
+          min={cycle.prep_start_date ?? undefined}
           max={cycle.actual_end_date && cycle.actual_end_date < today ? cycle.actual_end_date : today}
           disabled={choosing}
           onChange={(e) => set({ start: e.target.value })}

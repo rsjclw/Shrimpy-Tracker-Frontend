@@ -4,7 +4,7 @@
 
 import type { Cycle, Pond, PredictionConfig } from "@/lib/api";
 import { DEFAULT_PREDICTION_CONFIG, normalizeConfig } from "@/lib/cycles";
-import { docFor, hhmm, valid24 } from "@/lib/dates";
+import { daysBetween, docFor, hhmm, valid24 } from "@/lib/dates";
 import { has, num } from "@/lib/num";
 
 export type GeneralDraft = { name: string; area: string; firstFeed: string };
@@ -91,7 +91,10 @@ export function cycleDraftFromCycle(cycle: Cycle): { draft: CycleDraft; usedDefa
   const usedDefaults = !cycle.prediction_config;
   const cfg = normalizeConfig(cycle.prediction_config);
   const finalDoc = cycle.planned_end_date ? String(docFor(cycle.start_date, cycle.planned_end_date)) : "";
-  return { usedDefaults, draft: draftFromConfig(cfg, cycle.name, finalDoc) };
+  const draft = draftFromConfig(cfg, cycle.name, finalDoc);
+  // A cycle that came through preparation has its preparation days measured, not typed.
+  if (cycle.prep_start_date) draft.prepDays = String(daysBetween(cycle.prep_start_date, cycle.start_date));
+  return { usedDefaults, draft };
 }
 
 export function buildPredictionConfig(d: CycleDraft): PredictionConfig {

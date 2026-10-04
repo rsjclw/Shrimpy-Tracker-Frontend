@@ -85,7 +85,20 @@ function Items({ items }: { items: Item[] }) {
  * open card's tiles. Figures are taken the same way the open card takes them.
  * `days` is today first, then the older days of the loaded window.
  */
-export function PondSummary({ days, growth, today, now }: { days: DayView[]; growth: Growth | null; today: string; now: string }) {
+export function PondSummary({
+  days,
+  growth,
+  today,
+  now,
+  preparing = false,
+}: {
+  days: DayView[];
+  growth: Growth | null;
+  today: string;
+  now: string;
+  /** No shrimp yet: no feed, total or shrimp lines. */
+  preparing?: boolean;
+}) {
   const day = days[0]?.date === today ? days[0] : null;
   const feedings = day ? sortFeedings(day.feedings) : [];
   const statuses = day ? feedStatuses(day.feedings, "today", now) : [];
@@ -139,6 +152,8 @@ export function PondSummary({ days, growth, today, now }: { days: DayView[]; gro
 
   return (
     <div className="flex flex-col gap-1">
+      {!preparing ? (
+        <>
       <Line label="Feed">
         <span className="min-w-0 flex-grow font-mono text-[13px] leading-5">
           {feedings.length ? (
@@ -181,6 +196,8 @@ export function PondSummary({ days, growth, today, now }: { days: DayView[]; gro
           ]}
         />
       </Line>
+        </>
+      ) : null}
       <Line label="Water">
         <Items items={[water("ph", "pH"), water("do", "DO")]} />
       </Line>

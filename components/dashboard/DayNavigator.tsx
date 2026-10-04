@@ -32,7 +32,12 @@ export function DayNavigator({
   maxDate,
   onChange,
   dayNote,
+  docLabel = "DOC",
+  docShort = "D",
 }: {
+  /** "Prep day" while the pond is being prepared. */
+  docLabel?: string;
+  docShort?: string;
   startDate: string;
   viewDate: string;
   today: string;
@@ -97,7 +102,7 @@ export function DayNavigator({
           className={`flex min-w-0 flex-grow items-center justify-between gap-2 rounded-xl border px-3 py-2 ${style.bg} ${style.border}`}
         >
           <div className="flex min-w-0 flex-col gap-px text-left">
-            <span className="font-mono text-[17px] font-bold leading-tight text-tx-strong">DOC {doc}</span>
+            <span className="font-mono text-[17px] font-bold leading-tight text-tx-strong">{docLabel} {doc}</span>
             <span className="whitespace-nowrap text-[11px] text-tx-muted">{longDate(viewDate)}</span>
           </div>
           <div className="flex shrink-0 items-center gap-2">
@@ -160,7 +165,7 @@ export function DayNavigator({
                     {fromIso(iso).getDate()}
                   </span>
                   <span className={`font-mono text-[9px] ${sel ? "text-accent-ink" : isToday ? "text-accent" : n > todayDoc ? "text-tx-ghost" : "text-tx-faint"}`}>
-                    {valid ? `D${n}` : ""}
+                    {valid ? `${docShort}${n}` : ""}
                   </span>
                 </button>
               );
@@ -169,12 +174,12 @@ export function DayNavigator({
           <div className="flex items-end gap-2 border-t border-line pt-2.5">
             <div className="flex min-w-0 flex-grow flex-col gap-1">
               <label htmlFor={`goto-${startDate}`} className="text-[10px] uppercase tracking-[0.05em] text-tx-faint">
-                Go to DOC
+                Go to {docLabel}
               </label>
               <input
                 id={`goto-${startDate}`}
                 inputMode="numeric"
-                placeholder={`DOC 1–${maxDoc}`}
+                placeholder={`${docLabel} 1–${maxDoc}`}
                 value={gotoDoc}
                 onChange={(e) => setGotoDoc(e.target.value.replace(/[^0-9]/g, ""))}
                 onKeyDown={(e) => e.key === "Enter" && submitGoto()}

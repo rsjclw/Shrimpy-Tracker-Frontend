@@ -8,7 +8,7 @@ import { Icon } from "@/components/ui/Icon";
 import { PageColumn, PageHeader } from "@/components/ui/PageHeader";
 import { Segmented, Toggle } from "@/components/ui/Section";
 import { api, type Cycle, type DayView, type Farm, type Grid, type Pond, type TrendSeries } from "@/lib/api";
-import { byStartDesc, currentCycle, cycleLabel, statusLabel, targetDoc } from "@/lib/cycles";
+import { byStartDesc, currentCycle, cycleLabel, statusLabel, targetDoc, cycleFloor, prepDay } from "@/lib/cycles";
 import { addDays, daysBetween, docFor, isoForDoc, longDate, shortDate, todayIso, weekday } from "@/lib/dates";
 import { METRIC_DEFS, METRIC_GROUPS, backendMetric, metricDef } from "@/lib/metrics";
 import { cumulativeFeed } from "@/lib/feed";
@@ -169,7 +169,7 @@ export default function TrendsPage() {
         if (requested.current.has(key)) return;
         requested.current.add(key);
         api
-          .getCycleTrend(c.id, backendMetric(m), c.start_date, endFor(c))
+          .getCycleTrend(c.id, backendMetric(m), cycleFloor(c), endFor(c))
           .then((t) => setTrends((all) => ({ ...all, [key]: t })))
           .catch(() => requested.current.delete(key));
       }),
@@ -220,7 +220,7 @@ export default function TrendsPage() {
         coverage: (x) => {
           const d = axis === "doc" ? isoForDoc(c.start_date, x) : addDays(today, x);
           const doc = docFor(c.start_date, d);
-          if (doc < 1) return "before";
+          if (d < cycleFloor(c)) return "before";
           if (c.actual_end_date && doc > lenDoc) return "after";
           const last = points.at(-1);
           if (!last || d > last.date) return "ahead";
@@ -242,7 +242,7 @@ export default function TrendsPage() {
   let dMax = -Infinity;
   series.forEach((s) => s.points.forEach((p) => ((dMin = Math.min(dMin, p.x)), (dMax = Math.max(dMax, p.x)))));
   lines.forEach((c) => {
-    dMin = Math.min(dMin, xOf(c, c.start_date));
+    dMin = Math.min(dMin, xOf(c, cycleFloor(c)));
     const tdoc = targetDoc(c);
     if (tdoc) dMax = Math.max(dMax, xOf(c, isoForDoc(c.start_date, tdoc)));
   });
@@ -258,7 +258,7 @@ export default function TrendsPage() {
   else if (range === "7d") [from, to] = [anchor - 6, anchor];
   else if (range === "30d") [from, to] = [anchor - 29, anchor];
   else if (range === "cycle" && primary) {
-    from = xOf(primary, primary.start_date);
+    from = xOf(primary, cycleFloor(primary));
     const tdoc = targetDoc(primary);
     to = tdoc ? xOf(primary, isoForDoc(primary.start_date, tdoc)) : Math.max(anchor, xOf(primary, primary.actual_end_date ?? today));
   } else [from, to] = [dMin, dMax];
@@ -268,6 +268,11 @@ export default function TrendsPage() {
   to = Math.round(to);
 
   const xLabel = (x: number) => (axis === "doc" ? `D${x}` : shortDate(addDays(today, x)));
+  // Preparation before stocking: DOC 0 and below, shaded so it reads apart from the culture.
+  const prepRanges: [number, number][] = lines
+    .filter((c) => c.prep_start_date)
+    .map((c) => [xOf(c, c.prep_start_date!), xOf(c, addDays(c.start_date, -1))] as [number, number])
+    .filter(([a, b]) => b >= a);
   const dateAtX = (x: number) => (axis === "doc" && primary ? isoForDoc(primary.start_date, x) : addDays(today, x));
 
   // Targets from the primary cycle's settings.
@@ -386,7 +391,11 @@ export default function TrendsPage() {
                   </svg>
                   <span className="text-sm font-semibold">{cycleLabel(c)}</span>
                   <span className="ml-auto font-mono text-[11px] text-tx-faint">
-                    {c.status === "active" && !c.actual_end_date
+                    {c.status === "preparing"
+                      ? `preparing · day ${prepDay(c, today)}`
+                      : c.initial_population === null
+                      ? `${statusLabel(c.status).toLowerCase()} · ${prepDay(c, c.actual_end_date ?? today)} prep days`
+                      : c.status === "active" && !c.actual_end_date
                       ? `current · DOC ${docFor(c.start_date, today)}`
                       : `${c.status === "active" ? "reopened" : statusLabel(c.status).toLowerCase()} · ${docFor(c.start_date, c.actual_end_date ?? today)} days`}
                   </span>
@@ -433,6 +442,7 @@ export default function TrendsPage() {
           targets={targets}
           events={events}
           moltRanges={moltRanges}
+          prepRanges={prepRanges}
           xLabel={xLabel}
           overlay={overlay}
           onToggleOverlay={() => setOverlay((o) => !o)}
@@ -562,7 +572,7 @@ export default function TrendsPage() {
                           </svg>
                           <span className={`whitespace-nowrap text-xs font-semibold ${isView || on ? "text-tx-strong" : "text-tx-soft"}`}>
                             {cycleLabel(c)}
-                            {isView ? " · viewing" : c.status === "active" ? (c.actual_end_date ? " · reopened" : " · now") : c.status === "crashed" ? " · crashed" : ""}
+                            {isView ? " · viewing" : c.status === "preparing" ? " · preparing" : c.status === "active" ? (c.actual_end_date ? " · reopened" : " · now") : c.status === "crashed" ? " · crashed" : ""}
                           </span>
                         </button>
                       );

@@ -23,7 +23,11 @@ import {
 
 type Ctx = {
   cycleId: string;
+  /** Day 1 of the numbering below: the stocking day (DOC), or preparation's first day. */
   startDate: string;
+  /** "DOC" / "D" by default; a pond being prepared counts "Prep day" / "P". */
+  dayWord?: string;
+  dayShort?: string;
   /** Viewed day first, then older days. */
   days: DayView[];
   canEdit: boolean;
@@ -162,13 +166,13 @@ function historyRows(ctx: Ctx, keys: WaterParameterSourceKey[], format: (d: DayV
   return ctx.days
     .filter((d) => keys.some((k) => Number.isFinite(num(d.water?.[k]))))
     .slice(0, 6)
-    .map((d) => ({ key: d.date, doc: `D${docFor(ctx.startDate, d.date)}`, date: mediumDate(d.date), value: format(d) }));
+    .map((d) => ({ key: d.date, doc: `${ctx.dayShort ?? "D"}${docFor(ctx.startDate, d.date)}`, date: mediumDate(d.date), value: format(d) }));
 }
 
 function whenText(ctx: Ctx, iso: string | null) {
   if (!iso) return "No reading in the last two weeks";
   const a = daysBetween(iso, ctx.days[0].date);
-  return `Measured ${a === 0 ? "today" : a === 1 ? "1 day ago" : `${a} days ago`} · ${mediumDate(iso)} · DOC ${docFor(ctx.startDate, iso)}`;
+  return `Measured ${a === 0 ? "today" : a === 1 ? "1 day ago" : `${a} days ago`} · ${mediumDate(iso)} · ${ctx.dayWord ?? "DOC"} ${docFor(ctx.startDate, iso)}`;
 }
 
 function chartFor(ctx: Ctx, series: { key: WaterParameterSourceKey | ((d: DayView) => number); color: string }[]) {
@@ -186,9 +190,9 @@ function chartFor(ctx: Ctx, series: { key: WaterParameterSourceKey | ((d: DayVie
     series: built,
     xMin,
     xMax: viewDoc,
-    xStart: `D${Math.max(1, xMin)}`,
-    xEnd: `D${viewDoc}`,
-    xLabel: (x: number) => `DOC ${x} · ${mediumDate(isoForDoc(ctx.startDate, x))}`,
+    xStart: `${ctx.dayShort ?? "D"}${Math.max(1, xMin)}`,
+    xEnd: `${ctx.dayShort ?? "D"}${viewDoc}`,
+    xLabel: (x: number) => `${ctx.dayWord ?? "DOC"} ${x} · ${mediumDate(isoForDoc(ctx.startDate, x))}`,
   };
 }
 

@@ -10,10 +10,11 @@ import { DashboardHeader, type FarmStats } from "@/components/dashboard/Dashboar
 import { DashboardSkeleton, DashStats, PondSkeletons } from "@/components/dashboard/DashboardSkeleton";
 import { alertsFor } from "@/components/dashboard/model";
 import { PondCard } from "@/components/dashboard/PondCard";
+import { PrepPondCard } from "@/components/dashboard/PrepPondCard";
 import { Banner } from "@/components/ui/Field";
 import { Icon } from "@/components/ui/Icon";
 import { api, type Cycle, type DayView, type Farm, type Grid, type Pond, type Product } from "@/lib/api";
-import { byStartDesc, currentCycle, cycleDay, cycleLabel, isReopened, statusLabel } from "@/lib/cycles";
+import { byStartDesc, currentCycle, cycleDay, cycleFloor, cycleLabel, isPreparing, isReopened, statusLabel } from "@/lib/cycles";
 import { niceDate, todayIso } from "@/lib/dates";
 import { canManage } from "@/lib/roles";
 import { useRequireUser } from "@/lib/session";
@@ -145,6 +146,7 @@ export default function Dashboard() {
   );
   const active = gridPonds.map((p) => ({ pond: p, cycle: data ? currentCycle(data.cycles, p.id) : null })).filter((x): x is { pond: Pond; cycle: Cycle } => !!x.cycle);
   const inactive = gridPonds.filter((p) => !active.some((a) => a.pond.id === p.id));
+  const preparing = active.filter((a) => isPreparing(a.cycle)).length;
 
   // Fetches today's whole card window (not just today) so it is the same single request the pond card needs.
   // A reopened cycle's "today" is its end date.
@@ -154,7 +156,7 @@ export default function Dashboard() {
       const cached = cachedDay(cycle.id, at);
       if (cached) setTodayDays((m) => ({ ...m, [pondId]: cached }));
       if (isDayFresh(cycle.id, at)) return;
-      fetchDays(cycle.id, windowFor(at, cycle.start_date))
+      fetchDays(cycle.id, windowFor(at, cycleFloor(cycle)))
         .then(() => setTodayDays((m) => ({ ...m, [pondId]: cachedDay(cycle.id, at) ?? null })))
         .catch(() => !cached && setTodayDays((m) => ({ ...m, [pondId]: null })));
     },
@@ -179,7 +181,8 @@ export default function Dashboard() {
         if (!f) return;
         stats[f] ??= { active: 0, ponds: 0 };
         stats[f].ponds += 1;
-        if (currentCycle(cycles, p.id)) stats[f].active += 1;
+        const current = currentCycle(cycles, p.id);
+        if (current && !isPreparing(current)) stats[f].active += 1;
       });
       (farms ?? []).forEach((f) => (stats[f.id] ??= { active: 0, ponds: 0 }));
       setFarmStats(stats);
@@ -256,7 +259,8 @@ export default function Dashboard() {
       <div className="-mt-2 flex items-center gap-3">
         {data && grid ? (
           <>
-            <Stat value={active.length} label="active" />
+            <Stat value={active.length - preparing} label="active" />
+            {preparing ? <Stat value={preparing} label="preparing" color="text-violet" /> : null}
             <Stat value={inactive.length} label="inactive" color="text-tx-muted" />
             <Stat value={alerts} label={alerts === 1 ? "alert" : "alerts"} color={alerts ? "text-warn" : "text-good"} />
           </>
@@ -321,23 +325,41 @@ export default function Dashboard() {
           <Conditions grid={grid} today={today} canManage={manage} onSetLocation={() => setGridSettings("edit")} />
 
           <div className="flex flex-col gap-3.5">
-            {active.map(({ pond, cycle }) => (
-              <PondCard
-                key={pond.id}
-                pond={pond}
-                cycle={cycle}
-                farmId={farm.id}
-                farmName={farm.name}
-                role={farm.role}
-                products={data.products}
-                todayDay={todayDays[pond.id] ?? null}
-                today={today}
-                userEmail={user.email}
-                expanded={!!expanded[pond.id]}
-                onToggle={() => setExpanded((e) => ({ ...e, [pond.id]: !e[pond.id] }))}
-                onTodayChanged={() => loadToday(pond.id, cycle)}
-              />
-            ))}
+            {active.map(({ pond, cycle }) =>
+              isPreparing(cycle) ? (
+                <PrepPondCard
+                  key={`${pond.id}:prep`}
+                  pond={pond}
+                  cycle={cycle}
+                  farmId={farm.id}
+                  farmName={farm.name}
+                  role={farm.role}
+                  products={data.products}
+                  todayDay={todayDays[pond.id] ?? null}
+                  today={today}
+                  userEmail={user.email}
+                  expanded={!!expanded[pond.id]}
+                  onToggle={() => setExpanded((e) => ({ ...e, [pond.id]: !e[pond.id] }))}
+                  onTodayChanged={() => loadToday(pond.id, cycle)}
+                />
+              ) : (
+                <PondCard
+                  key={pond.id}
+                  pond={pond}
+                  cycle={cycle}
+                  farmId={farm.id}
+                  farmName={farm.name}
+                  role={farm.role}
+                  products={data.products}
+                  todayDay={todayDays[pond.id] ?? null}
+                  today={today}
+                  userEmail={user.email}
+                  expanded={!!expanded[pond.id]}
+                  onToggle={() => setExpanded((e) => ({ ...e, [pond.id]: !e[pond.id] }))}
+                  onTodayChanged={() => loadToday(pond.id, cycle)}
+                />
+              ),
+            )}
             {active.length === 0 ? (
               <div className="rounded-[18px] border border-dashed border-line bg-ink-850 p-5 text-center text-sm text-tx-muted">
                 No pond in {grid.name} is running a cycle.

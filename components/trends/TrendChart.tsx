@@ -80,6 +80,7 @@ export function TrendChart({
   targets,
   events,
   moltRanges,
+  prepRanges = [],
   xLabel,
   overlay,
   onToggleOverlay,
@@ -92,6 +93,8 @@ export function TrendChart({
   targets: Target[];
   events: ChartEvent[];
   moltRanges: [number, number][];
+  /** Pond preparation before stocking, shaded under the lines. */
+  prepRanges?: [number, number][];
   xLabel: (x: number) => string;
   overlay: boolean;
   onToggleOverlay: () => void;
@@ -153,6 +156,16 @@ export function TrendChart({
                 <span className="shrink-0 pl-2 font-mono text-[10px] text-tx-faint">{merged ? `← ${unit} →` : unit}</span>
               </div>
               <svg viewBox={`0 0 ${W} ${LANE_H}`} width="100%" className="block overflow-visible" aria-hidden>
+                {prepRanges.map(([a, b], i) =>
+                  b + 0.5 > from && a - 0.5 < to ? (
+                    <g key={`prep${i}`}>
+                      <rect x={xpx(Math.max(from, a - 0.5))} y={6} width={Math.max(2, ((Math.min(to, b + 0.5) - Math.max(from, a - 0.5)) / span) * PW)} height={108} fill="#A78BFA" opacity={0.08} />
+                      <text x={xpx(Math.max(from, a - 0.5)) + 4} y={16} fontSize={9} fill="#A78BFA" opacity={0.8}>
+                        Prep
+                      </text>
+                    </g>
+                  ) : null,
+                )}
                 {layers.molt
                   ? moltRanges.map(([a, b], i) => (
                       <rect key={i} x={xpx(Math.max(from, a - 0.5))} y={6} width={Math.max(2, ((Math.min(to, b + 0.5) - Math.max(from, a - 0.5)) / span) * PW)} height={108} fill="#F5E6B8" opacity={0.06} />

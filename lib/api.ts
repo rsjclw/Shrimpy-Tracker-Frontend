@@ -129,11 +129,15 @@ export type Cycle = {
   id: string;
   pond_id: string;
   name: string;
+  /** Stocking day, DOC 1; while preparing, the planned one. */
   start_date: string;
+  /** The day pond preparation began, for a cycle that started as "preparing". */
+  prep_start_date: string | null;
   planned_end_date: string | null;
   actual_end_date: string | null;
-  initial_population: number;
-  initial_abw_g: string;
+  /** Empty until the pond is stocked. */
+  initial_population: number | null;
+  initial_abw_g: string | null;
   maximum_daily_feed_capacity_kg: string | null;
   stable_carrying_capacity_kg_per_m3: string | null;
   final_carrying_capacity_kg_per_m3: string | null;
@@ -729,6 +733,7 @@ export const api = {
     b: {
       name?: string;
       start_date?: string;
+      prep_start_date?: string;
       initial_population?: number;
       initial_abw_g?: number;
       blind_feeding_template_id?: string | null;
@@ -747,6 +752,11 @@ export const api = {
       notes?: string;
     },
   ) => request<Cycle>(`/cycles/${id}`, { method: "PUT", body: JSON.stringify(b) }),
+  /** Stock a preparing cycle: the stocking day becomes DOC 1 and blind feeding starts there. */
+  stockCycle: (
+    id: string,
+    b: { start_date: string; initial_population: number; initial_abw_g: number; blind_feeding_template_id?: string; blind_feeding_target_abw_g?: number },
+  ) => request<Cycle>(`/cycles/${id}/stock`, { method: "POST", body: JSON.stringify(b) }),
   /** What ending the cycle on `endDate` gives (survival rate, cycle FCR) and the end-of-cycle mistakes to fix first. */
   getFinishCheck: (id: string, endDate: string) => request<FinishCheck>(`/cycles/${id}/finish-check?end_date=${endDate}`),
   getCycleSummary: (id: string) => request<CycleSummary>(`/cycles/${id}/summary`),
@@ -754,9 +764,12 @@ export const api = {
   createCycle: (b: {
     pond_id: string;
     name: string;
+    /** "preparing" starts pond preparation; stocking follows through stockCycle. */
+    status?: "active" | "preparing";
     start_date: string;
-    initial_population: number;
-    initial_abw_g: number;
+    prep_start_date?: string;
+    initial_population?: number;
+    initial_abw_g?: number;
     blind_feeding_template_id?: string;
     blind_feeding_target_abw_g?: number;
     maximum_daily_feed_capacity_kg?: number;

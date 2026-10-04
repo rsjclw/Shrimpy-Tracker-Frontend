@@ -25,7 +25,7 @@ import { Button } from "@/components/ui/Button";
 import { Banner, ConfirmStrip, Loading } from "@/components/ui/Field";
 import { PageColumn, PageHeader } from "@/components/ui/PageHeader";
 import { api, type BlindFeedingTemplate, type Cycle, type Farm, type Grid, type Pond, type Product } from "@/lib/api";
-import { currentCycle, cycleLabel, isReopened } from "@/lib/cycles";
+import { currentCycle, cycleLabel, isPreparing, isReopened } from "@/lib/cycles";
 import { isoForDoc } from "@/lib/dates";
 import { canManage } from "@/lib/roles";
 import { useRequireUser } from "@/lib/session";
@@ -60,6 +60,13 @@ export default function PondSettingsPage() {
   const [usedDefaults, setUsedDefaults] = useState(false);
 
   const [open, setOpen] = useState<OpenSections>(DEFAULT_OPEN);
+  // The dashboard's Stock pond link lands here with ?stock=1: open the Cycle section on the stocking form.
+  const [autoStock, setAutoStock] = useState(false);
+  useEffect(() => {
+    if (new URLSearchParams(window.location.search).get("stock") !== "1") return;
+    setAutoStock(true);
+    setOpen((o) => ({ ...o, cycle: true }));
+  }, []);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
 
@@ -245,10 +252,10 @@ export default function PondSettingsPage() {
         right={
           <span
             className={`rounded-full border px-2.5 py-1 text-[11px] font-bold tracking-[0.04em] ${
-              activeCycle ? "border-accent text-accent" : "border-line text-tx-muted"
+              activeCycle ? (isPreparing(activeCycle) ? "border-violet text-violet" : "border-accent text-accent") : "border-line text-tx-muted"
             }`}
           >
-            {activeCycle ? `${cycleLabel(activeCycle)} · ${isReopened(activeCycle) ? "reopened" : "active"}` : "No active cycle"}
+            {activeCycle ? `${cycleLabel(activeCycle)} · ${isReopened(activeCycle) ? "reopened" : isPreparing(activeCycle) ? "preparing" : "active"}` : "No active cycle"}
           </span>
         }
       />
@@ -274,6 +281,7 @@ export default function PondSettingsPage() {
         onToggle={() => toggle("cycle")}
         readOnly={readOnly}
         pageDirty={dirty}
+        autoStock={autoStock}
         onReload={reload}
       />
 
