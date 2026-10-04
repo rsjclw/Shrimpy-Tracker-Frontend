@@ -10,7 +10,6 @@ import { daysBetween, docFor, fmt24, hhmm, nowHHMM, valid24 } from "@/lib/dates"
 import { decimalInput, fmtDec, fmtInt, intInput, num, rupiah, signed } from "@/lib/num";
 import { expandLines, factorToBase, stockByProduct, unitsFor } from "@/lib/products";
 import type { LogKind } from "./GrowthStats";
-import { samplingFromHarvests } from "./model";
 import type { Growth } from "./usePondData";
 
 type Perms = { canAdd: boolean; canManage: boolean };
@@ -147,13 +146,7 @@ export function SamplingHarvestLog({ ctx, requested, onRequestHandled }: { ctx: 
     setForm((fm) => (fm ? { ...fm, fields: { ...fm.fields, [k]: v } } : fm));
   };
 
-  // A sampling can be taken from the day's harvests; a day holds one ABW sample, so a new one replaces it.
-  const fromHarvests = samplingFromHarvests(day.harvests);
-  const useHarvests = () => {
-    if (!fromHarvests?.time) return;
-    const { time, abw } = fromHarvests;
-    setForm((fm) => (fm ? { ...fm, fields: { ...fm.fields, time, abw: abw.toFixed(2) } } : fm));
-  };
+  // A day holds one ABW sample, so a new one replaces it.
   const replacing =
     form?.kind === "sampling" &&
     !form.editId &&
@@ -327,22 +320,14 @@ export function SamplingHarvestLog({ ctx, requested, onRequestHandled }: { ctx: 
                 ) : null}
                 {form.kind === "population" ? <FormField cycleId={ctx.cycleId} id="pop" label="New population" value={form.fields.pop} mode="numeric" placeholder="0" onChange={(v) => setField("pop", intInput(v))} /> : null}
               </div>
-              {form.kind === "sampling" && fromHarvests ? (
-                <div className="flex flex-col items-start gap-1">
-                  <button
-                    type="button"
-                    onClick={useHarvests}
-                    disabled={!fromHarvests.time}
-                    className="rounded-md border border-warn/50 px-2.5 py-[5px] text-[11px] font-semibold text-warn disabled:opacity-40"
-                  >
-                    Use harvest data
-                  </button>
-                  <span className="font-mono text-[10px] text-tx-muted">
-                    {fromHarvests.time
-                      ? `From ${fromHarvests.harvests} harvest${fromHarvests.harvests === 1 ? "" : "s"}: ${fmtDec(fromHarvests.kg, 1)} kg, ~${fmtInt(fromHarvests.count)} shrimp → ${fromHarvests.abw.toFixed(2)} g, after ${fromHarvests.lastTime}`
-                      : `The last harvest is at ${fromHarvests.lastTime}; there is no later time that day for the sample.`}
-                  </span>
-                </div>
+              {form.kind === "sampling" && day.harvests.length ? (
+                <span className="text-[11px] text-tx-muted">
+                  On a harvest day the sample follows the harvests: every harvest added, edited or deleted resets it to their total kg over
+                  total count, a minute after the last one, replacing an edit made here.
+                </span>
+              ) : null}
+              {form.kind === "harvest" ? (
+                <span className="text-[11px] text-tx-muted">Saving also resets this day&apos;s ABW sample from its harvests.</span>
               ) : null}
               {replacing ? (
                 <span className="text-[11px] text-warn">
