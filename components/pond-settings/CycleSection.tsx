@@ -205,7 +205,8 @@ export function CycleSection({
 
   // Survival rate of each listed past cycle: the metric of its last day, fetched once the list is open.
   // Keyed by cycle and end date, so finishing again on another day fetches it afresh.
-  const [survival, setSurvival] = useState<Record<string, string | null>>({});
+  type CycleResult = { sr: string | null; finalPop: number | null; fcr: string | null } | null;
+  const [survival, setSurvival] = useState<Record<string, CycleResult>>({});
   const srKey = (c: Cycle) => `${c.id}:${closedEndDate(c, todayIso())}`;
   const shownKey = shown.map(srKey).join(",");
   useEffect(() => {
@@ -216,7 +217,9 @@ export function CycleSection({
         const key = srKey(c);
         api
           .getCycleDay(c.id, closedEndDate(c, todayIso()))
-          .then((d) => setSurvival((m) => ({ ...m, [key]: d.metrics.survival_rate_pct })))
+          .then((d) =>
+            setSurvival((m) => ({ ...m, [key]: { sr: d.metrics.survival_rate_pct, finalPop: d.metrics.final_population, fcr: d.metrics.fcr } })),
+          )
           .catch(() => setSurvival((m) => ({ ...m, [key]: null })));
       });
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -531,18 +534,16 @@ export function CycleSection({
                 const days = docFor(c.start_date, end);
                 const reason = c.status === "crashed" ? crashReasonFromNotes(c.notes) : "";
                 const canReopen = reopenable?.id === c.id;
+                const result = survival[srKey(c)];
                 return (
                   <div key={c.id} className="flex flex-col gap-1.5">
-                    <div className="flex items-center gap-2.5 rounded-[10px] bg-ink-850 px-3 py-2.5">
+                    <div className="flex flex-col gap-1 rounded-[10px] bg-ink-850 px-3 py-2.5">
+                    <div className="flex items-center gap-2.5">
                       <span className="w-16 shrink-0 text-[13px] font-semibold text-tx">{cycleLabel(c)}</span>
                       <span className="min-w-0 flex-grow truncate text-xs text-tx-dim">
                         {days} days · ended {monthYear(end)}
                         {reason ? ` · ${reason}` : ""}
                       </span>
-                      {/* Its own slot: the details above truncate on a phone, the survival rate must not. */}
-                      {survival[srKey(c)] ? (
-                        <span className="shrink-0 font-mono text-[11px] font-semibold text-tx-soft">SR {fmtDec(survival[srKey(c)], 1)}%</span>
-                      ) : null}
                       <span className={`shrink-0 text-[11px] font-bold ${statusText(c.status)}`}>{statusLabel(c.status)}</span>
                       {canReopen && !reopenConfirm ? (
                         <button
@@ -556,6 +557,13 @@ export function CycleSection({
                           Reopen
                         </button>
                       ) : null}
+                    </div>
+                    {/* The cycle's result, from its last day: its own line so a phone width never cuts it. */}
+                    {result?.sr ? (
+                      <span className="font-mono text-[11px] text-tx-soft">
+                        SR {fmtDec(result.sr, 1)}% · final population {fmtInt(result.finalPop)} · FCR {result.fcr !== null ? fmtDec(result.fcr, 2) : "—"}
+                      </span>
+                    ) : null}
                     </div>
                     {canReopen && reopenConfirm ? (
                       <div className="flex flex-col gap-2.5 rounded-xl border border-warn/40 bg-warn/[0.07] p-3">

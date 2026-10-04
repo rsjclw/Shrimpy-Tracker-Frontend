@@ -151,6 +151,8 @@ export type FinishCheck = {
   harvested_count: number;
   harvested_kg: string;
   survival_rate_pct: string | null;
+  /** Shrimp counted at the final harvest: the last day's harvests. */
+  final_population: number;
   feed_kg: string;
   cycle_fcr: string | null;
   /** The cycle's last harvest on any day: usually the right last day. */
@@ -418,6 +420,8 @@ export type DayMetrics = {
   harvested_count: number;
   /** Harvested over stocked, %: only on an ended cycle's last day. */
   survival_rate_pct: string | null;
+  /** Shrimp counted at the final harvest (the last day's harvests): only on an ended cycle's last day. */
+  final_population: number | null;
 };
 export type SamplingMetrics = {
   adg_g_per_day: string | null;

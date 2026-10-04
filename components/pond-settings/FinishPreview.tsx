@@ -73,6 +73,7 @@ export function FinishPreview({
       <span className="font-mono text-[11px] text-tx">
         Survival rate {check.survival_rate_pct !== null ? `${fmtDec(check.survival_rate_pct, 1)}%` : "—"} · {fmtInt(check.harvested_count)} harvested of {fmtInt(check.stocked)}
       </span>
+      <span className="font-mono text-[11px] text-tx">Final population {fmtInt(check.final_population)} · counted at the final harvest</span>
       <span className="font-mono text-[11px] text-tx">
         Cycle FCR {check.cycle_fcr !== null ? fmtDec(check.cycle_fcr, 2) : "—"} · {fmtInt(check.feed_kg)} kg feed ÷ {fmtInt(check.harvested_kg)} kg harvested
       </span>

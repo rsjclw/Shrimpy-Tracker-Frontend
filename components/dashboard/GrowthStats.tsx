@@ -207,9 +207,17 @@ export function GrowthStats({
         })}
         {/* The cycle's result, on its last day: the pond is emptied, so population reads 0 from here. */}
         {day.metrics.survival_rate_pct !== null ? (
-          <div className="col-span-2 flex min-w-0 flex-col gap-[3px] rounded-[10px] border border-accent/40 bg-accent/[0.07] px-2.5 py-2">
-            <div className="text-[10px] uppercase tracking-[0.06em] text-tx-faint">Survival rate</div>
-            <div className="font-mono text-sm font-semibold text-tx-strong">{fmtDec(day.metrics.survival_rate_pct, 1)}%</div>
+          <div className="col-span-2 flex min-w-0 flex-col gap-1 rounded-[10px] border border-accent/40 bg-accent/[0.07] px-2.5 py-2">
+            <div className="grid grid-cols-2 gap-2">
+              <div className="flex min-w-0 flex-col gap-[3px]">
+                <div className="text-[10px] uppercase tracking-[0.06em] text-tx-faint">Survival rate</div>
+                <div className="font-mono text-sm font-semibold text-tx-strong">{fmtDec(day.metrics.survival_rate_pct, 1)}%</div>
+              </div>
+              <div className="flex min-w-0 flex-col gap-[3px]">
+                <div className="text-[10px] uppercase tracking-[0.06em] text-tx-faint">Final population</div>
+                <div className="font-mono text-sm font-semibold text-tx-strong">{fmtInt(day.metrics.final_population)}</div>
+              </div>
+            </div>
             <div className="truncate font-mono text-[10px] text-tx-faint">
               {fmtInt(day.metrics.harvested_count)} harvested of {fmtInt(stocked)} stocked
             </div>
