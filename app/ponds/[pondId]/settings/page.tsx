@@ -25,7 +25,7 @@ import { Button } from "@/components/ui/Button";
 import { Banner, ConfirmStrip, Loading } from "@/components/ui/Field";
 import { PageColumn, PageHeader } from "@/components/ui/PageHeader";
 import { api, type BlindFeedingTemplate, type Cycle, type Farm, type Grid, type Pond, type Product } from "@/lib/api";
-import { currentCycle, cycleLabel } from "@/lib/cycles";
+import { currentCycle, cycleLabel, isReopened } from "@/lib/cycles";
 import { isoForDoc } from "@/lib/dates";
 import { canManage } from "@/lib/roles";
 import { useRequireUser } from "@/lib/session";
@@ -248,7 +248,7 @@ export default function PondSettingsPage() {
               activeCycle ? "border-accent text-accent" : "border-line text-tx-muted"
             }`}
           >
-            {activeCycle ? `${cycleLabel(activeCycle)} · active` : "No active cycle"}
+            {activeCycle ? `${cycleLabel(activeCycle)} · ${isReopened(activeCycle) ? "reopened" : "active"}` : "No active cycle"}
           </span>
         }
       />

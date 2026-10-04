@@ -49,6 +49,7 @@ export function DayNavigator({
   const doc = docFor(startDate, viewDate);
   const maxDoc = docFor(startDate, maxDate);
   const todayDoc = docFor(startDate, today);
+  const home = today <= maxDate ? today : maxDate;
 
   function go(iso: string) {
     if (iso < startDate || iso > maxDate) return;
@@ -187,17 +188,20 @@ export function DayNavigator({
         </div>
       ) : null}
 
-      {kind !== "today" ? (
+      {kind !== "today" && (dayNote || viewDate !== home) ? (
         <div className="flex items-center justify-between gap-2">
           <span className="text-[11px] text-tx-muted">{dayNote}</span>
-          <button
-            type="button"
-            onClick={() => go(today <= maxDate ? today : maxDate)}
-            className="flex shrink-0 items-center gap-[5px] rounded-full bg-accent px-2.5 py-[5px] text-[11px] font-bold text-accent-ink"
-          >
-            <Icon name="reset" size={12} strokeWidth={2.4} />
-            Back to today
-          </button>
+          {/* A cycle that ended before today (reopened) has its last day as home instead. */}
+          {viewDate !== home ? (
+            <button
+              type="button"
+              onClick={() => go(home)}
+              className="flex shrink-0 items-center gap-[5px] rounded-full bg-accent px-2.5 py-[5px] text-[11px] font-bold text-accent-ink"
+            >
+              <Icon name="reset" size={12} strokeWidth={2.4} />
+              {home === today ? "Back to today" : "Back to last day"}
+            </button>
+          ) : null}
         </div>
       ) : null}
     </div>

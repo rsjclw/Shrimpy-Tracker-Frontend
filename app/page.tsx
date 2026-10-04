@@ -13,7 +13,7 @@ import { PondCard } from "@/components/dashboard/PondCard";
 import { Banner } from "@/components/ui/Field";
 import { Icon } from "@/components/ui/Icon";
 import { api, type Cycle, type DayView, type Farm, type Grid, type Pond, type Product } from "@/lib/api";
-import { byStartDesc, currentCycle, cycleLabel, statusLabel } from "@/lib/cycles";
+import { byStartDesc, currentCycle, cycleDay, cycleLabel, isReopened, statusLabel } from "@/lib/cycles";
 import { niceDate, todayIso } from "@/lib/dates";
 import { canManage } from "@/lib/roles";
 import { useRequireUser } from "@/lib/session";
@@ -147,13 +147,15 @@ export default function Dashboard() {
   const inactive = gridPonds.filter((p) => !active.some((a) => a.pond.id === p.id));
 
   // Fetches today's whole card window (not just today) so it is the same single request the pond card needs.
+  // A reopened cycle's "today" is its end date.
   const loadToday = useCallback(
     (pondId: string, cycle: Cycle) => {
-      const cached = cachedDay(cycle.id, today);
+      const at = cycleDay(cycle, today);
+      const cached = cachedDay(cycle.id, at);
       if (cached) setTodayDays((m) => ({ ...m, [pondId]: cached }));
-      if (isDayFresh(cycle.id, today)) return;
-      fetchDays(cycle.id, windowFor(today, cycle.start_date))
-        .then(() => setTodayDays((m) => ({ ...m, [pondId]: cachedDay(cycle.id, today) ?? null })))
+      if (isDayFresh(cycle.id, at)) return;
+      fetchDays(cycle.id, windowFor(at, cycle.start_date))
+        .then(() => setTodayDays((m) => ({ ...m, [pondId]: cachedDay(cycle.id, at) ?? null })))
         .catch(() => !cached && setTodayDays((m) => ({ ...m, [pondId]: null })));
     },
     [today],
@@ -210,7 +212,7 @@ export default function Dashboard() {
   if (!farms || !farm) return <DashboardSkeleton user={user} today={today} />;
 
   const manage = canManage(farm.role);
-  const alerts = active.filter((a) => alertsFor(todayDays[a.pond.id] ?? null).length > 0).length;
+  const alerts = active.filter((a) => !isReopened(a.cycle) && alertsFor(todayDays[a.pond.id] ?? null).length > 0).length;
   const pondCounts = Object.fromEntries((data?.grids ?? []).map((g) => [g.id, (data?.ponds ?? []).filter((p) => p.grid_id === g.id).length]));
 
   return (

@@ -386,7 +386,9 @@ export default function TrendsPage() {
                   </svg>
                   <span className="text-sm font-semibold">{cycleLabel(c)}</span>
                   <span className="ml-auto font-mono text-[11px] text-tx-faint">
-                    {c.status === "active" ? `current · DOC ${docFor(c.start_date, today)}` : `${statusLabel(c.status).toLowerCase()} · ${docFor(c.start_date, c.actual_end_date ?? today)} days`}
+                    {c.status === "active" && !c.actual_end_date
+                      ? `current · DOC ${docFor(c.start_date, today)}`
+                      : `${c.status === "active" ? "reopened" : statusLabel(c.status).toLowerCase()} · ${docFor(c.start_date, c.actual_end_date ?? today)} days`}
                   </span>
                 </button>
               ))}
@@ -560,7 +562,7 @@ export default function TrendsPage() {
                           </svg>
                           <span className={`whitespace-nowrap text-xs font-semibold ${isView || on ? "text-tx-strong" : "text-tx-soft"}`}>
                             {cycleLabel(c)}
-                            {isView ? " · viewing" : c.status === "active" ? " · now" : c.status === "crashed" ? " · crashed" : ""}
+                            {isView ? " · viewing" : c.status === "active" ? (c.actual_end_date ? " · reopened" : " · now") : c.status === "crashed" ? " · crashed" : ""}
                           </span>
                         </button>
                       );

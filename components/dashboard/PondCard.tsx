@@ -6,8 +6,8 @@ import { useCallback, useEffect, useState } from "react";
 import { Banner, Spinner } from "@/components/ui/Field";
 import { Icon } from "@/components/ui/Icon";
 import { api, type Cycle, type DayView, type FarmRole, type Pond, type Product } from "@/lib/api";
-import { docFor, isoForDoc, nowHHMM } from "@/lib/dates";
-import { cycleLabel } from "@/lib/cycles";
+import { docFor, isoForDoc, nowHHMM, shortDate } from "@/lib/dates";
+import { cycleDay, cycleLabel, isReopened } from "@/lib/cycles";
 import { cachedDay, windowFor } from "@/lib/dayViews";
 import { canAdd, canManage } from "@/lib/roles";
 import { DayNavigator, kindOf } from "./DayNavigator";
@@ -48,29 +48,33 @@ export function PondCard({
   onToggle: () => void;
   onTodayChanged: () => void;
 }) {
-  const maxDate = isoForDoc(cycle.start_date, docFor(cycle.start_date, today) + 30);
-  const [viewDate, setViewDate] = useState(today);
+  // A reopened cycle (finished, reopened to fill in missing logs) stops at its end date: the card opens there, not on today.
+  const reopened = isReopened(cycle);
+  const lastDay = cycleDay(cycle, today);
+  const maxDate = reopened && cycle.actual_end_date ? cycle.actual_end_date : isoForDoc(cycle.start_date, docFor(cycle.start_date, today) + 30);
+  const [viewDate, setViewDate] = useState(lastDay);
   const { day, days, growth, loading, error, reload } = usePondData(cycle, viewDate, maxDate);
   const [logRequest, setLogRequest] = useState<LogKind | null>(null);
 
-  useEffect(() => setViewDate(today), [cycle.id, today]);
+  useEffect(() => setViewDate(lastDay), [cycle.id, lastDay]);
 
   const perms = { canAdd: canAdd(role), canManage: canManage(role) };
   const now = nowHHMM();
-  const alerts = alertsFor(todayDay);
-  const hint = nextFeedHint(todayDay, now);
-  const todayDoc = docFor(cycle.start_date, today);
+  // Alerts and the feed hint are about running the pond today, which a reopened cycle is not doing.
+  const alerts = reopened ? [] : alertsFor(todayDay);
+  const hint = reopened ? { label: "", value: "Reopened", tone: "warn" as const } : nextFeedHint(todayDay, now);
+  const todayDoc = docFor(cycle.start_date, lastDay);
   const kind = kindOf(viewDate, today);
   const viewDoc = docFor(cycle.start_date, viewDate);
-  const statusText = alerts.length ? "Needs attention" : "Stable";
+  const statusText = reopened && cycle.actual_end_date ? `Reopened · ended ${shortDate(cycle.actual_end_date)}` : alerts.length ? "Needs attention" : "Stable";
   const saveContext = `${farmName} · ${pond.name} · DOC ${viewDoc}`;
-  // The collapsed summary is always about today, whichever day the open card was last left on.
-  const todayWindow = todayDay ? [todayDay, ...windowFor(today, cycle.start_date).slice(1).flatMap((d) => cachedDay(cycle.id, d) ?? [])] : [];
+  // The collapsed summary is always about today (a reopened cycle's last day), whichever day the open card was last left on.
+  const todayWindow = todayDay ? [todayDay, ...windowFor(lastDay, cycle.start_date).slice(1).flatMap((d) => cachedDay(cycle.id, d) ?? [])] : [];
 
   const onSaved = useCallback(() => {
     reload();
-    if (viewDate === today) onTodayChanged();
-  }, [reload, viewDate, today, onTodayChanged]);
+    if (viewDate === lastDay) onTodayChanged();
+  }, [reload, viewDate, lastDay, onTodayChanged]);
 
   const ensureLogId = useCallback(async () => {
     if (day?.daily_log_id) return day.daily_log_id;
@@ -110,7 +114,8 @@ export function PondCard({
                 statusText
               ) : (
                 <>
-                  DOC {todayDoc} · {alerts.length ? <span className="text-warn">Check {alerts.join(", ")}</span> : statusText}
+                  DOC {todayDoc} ·{" "}
+                  {alerts.length ? <span className="text-warn">Check {alerts.join(", ")}</span> : reopened ? <span className="text-warn">{statusText}</span> : statusText}
                 </>
               )}
             </span>
@@ -133,7 +138,7 @@ export function PondCard({
       {!expanded ? (
         // Tapping the summary opens the card like the header does; the header button is the keyboard route.
         <div onClick={onToggle} className="-mt-1.5 cursor-pointer px-[18px] pb-4">
-          <PondSummary days={todayWindow} growth={growth} today={today} now={now} />
+          <PondSummary days={todayWindow} growth={growth} today={lastDay} now={now} />
         </div>
       ) : null}
 

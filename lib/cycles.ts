@@ -13,6 +13,22 @@ export function isActive(cycle: Cycle): boolean {
   return cycle.status === "active";
 }
 
+/** Finished, then reopened to fill in missing logs: active again, but it keeps the end date it had. */
+export function isReopened(cycle: Cycle): boolean {
+  return isActive(cycle) && !!cycle.actual_end_date;
+}
+
+/** The day a running cycle is at: today, or its end date once it has one in the past (reopened). */
+export function cycleDay(cycle: Cycle, today: string): string {
+  return cycle.actual_end_date && cycle.actual_end_date < today ? cycle.actual_end_date : today;
+}
+
+/** Last day of a closed cycle. Older cycles may lack actual_end_date, so fall back like the backend does. */
+export function closedEndDate(cycle: Cycle, today: string): string {
+  const end = cycle.actual_end_date ?? cycle.planned_end_date ?? today;
+  return end < today ? end : today;
+}
+
 /** Newest first by start date. */
 export function byStartDesc(a: Cycle, b: Cycle): number {
   // Same start day: the one still running, then the one that ended last, comes first.
@@ -49,8 +65,9 @@ export function lastLoggableDoc(cycle: Cycle): number {
   return docFor(cycle.start_date, todayIso()) + 30;
 }
 
+/** DOC the cycle is at now; a reopened cycle stays at its end date. */
 export function todayDoc(cycle: Cycle): number {
-  return docFor(cycle.start_date, todayIso());
+  return docFor(cycle.start_date, cycleDay(cycle, todayIso()));
 }
 
 /** Target final DOC from the planned end date. */
