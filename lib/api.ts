@@ -145,6 +145,49 @@ export type Cycle = {
   blind_feeding_target_abw_g: string | null;
   prediction_config: PredictionConfig | null;
 };
+/** A cycle's results for the past-cycles cards (GET /cycles/{id}/summary). */
+export type CycleSummary = {
+  ended: boolean;
+  end_date: string;
+  doc: number;
+  area_m2: string | null;
+  total_harvest_kg: string;
+  total_feed_kg: string;
+  /** What the harvests sold for, all of them up to the last day. */
+  total_revenue: string;
+  /** Total harvest over pond area: t per 1,000 m2 (the same number as kg/m2). */
+  yield_t_per_1000m2: string | null;
+  fcr: string | null;
+  survival_rate_pct: string | null;
+  initial_population: number;
+  final_population: number | null;
+  /** Biomass of the final harvest: the last day's harvests. */
+  final_harvest_kg: string | null;
+  harvested_count: number;
+  final_abw_g: string | null;
+  /** Final ABW over total DOC. */
+  average_adg_g_per_day: string | null;
+  max_biomass_kg: string | null;
+  max_biomass_doc: number | null;
+  /** Max standing biomass over pond area, kg/m2. */
+  max_carrying_capacity_kg_m2: string | null;
+  highest_daily_feed_kg: string | null;
+  highest_daily_feed_doc: number | null;
+  max_mortality: number | null;
+  max_mortality_doc: number | null;
+  harvests: {
+    date: string;
+    doc: number;
+    harvest_time: string;
+    biomass_kg: string;
+    abw_g: string;
+    size_pcs_per_kg: number | null;
+    count: number;
+    revenue: string;
+    /** On the cycle's last day: part of the final population. */
+    final: boolean;
+  }[];
+};
 export type FinishCheck = {
   end_date: string;
   stocked: number;
@@ -706,6 +749,7 @@ export const api = {
   ) => request<Cycle>(`/cycles/${id}`, { method: "PUT", body: JSON.stringify(b) }),
   /** What ending the cycle on `endDate` gives (survival rate, cycle FCR) and the end-of-cycle mistakes to fix first. */
   getFinishCheck: (id: string, endDate: string) => request<FinishCheck>(`/cycles/${id}/finish-check?end_date=${endDate}`),
+  getCycleSummary: (id: string) => request<CycleSummary>(`/cycles/${id}/summary`),
   deleteCycle: (id: string) => request<void>(`/cycles/${id}`, { method: "DELETE" }),
   createCycle: (b: {
     pond_id: string;

@@ -5,12 +5,13 @@ import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/Button";
 import { CollapsibleSection } from "@/components/ui/Section";
 import { api, type BlindFeedingTemplate, type Cycle, type Pond, type Product } from "@/lib/api";
-import { closedEndDate, isReopened, normalizeConfig, pastCycles, statusLabel, statusText, todayDoc, cycleLabel, nextCycleName } from "@/lib/cycles";
-import { addDays, docFor, isoForDoc, niceDate, monthYear, todayIso } from "@/lib/dates";
-import { fmtDec, fmtInt, fmtNum } from "@/lib/num";
+import { isReopened, normalizeConfig, pastCycles, statusLabel, todayDoc, cycleLabel, nextCycleName } from "@/lib/cycles";
+import { addDays, docFor, isoForDoc, niceDate, todayIso } from "@/lib/dates";
+import { fmtInt, fmtNum } from "@/lib/num";
 import { FinishPreview, finishBlocked, useFinishCheck } from "./FinishPreview";
+import { PastCycles } from "./PastCycles";
 import { StockingEditor } from "./StockingEditor";
-import { crashReasonFromNotes, type CycleDraft, has, num } from "./types";
+import { type CycleDraft, has, num } from "./types";
 
 function errorText(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
@@ -197,57 +198,6 @@ export function CycleSection({
     }
   }
 
-  // ----- past cycles -----
-  // With nothing running, the past cycles (and reopening the last one) are what the section is about.
-  const [historyOpen, setHistoryOpen] = useState(() => !cycle);
-  const [historyAll, setHistoryAll] = useState(false);
-  const shown = historyAll ? past : past.slice(0, 5);
-
-  // Survival rate of each listed past cycle: the metric of its last day, fetched once the list is open.
-  // Keyed by cycle and end date, so finishing again on another day fetches it afresh.
-  type CycleResult = { sr: string | null; finalPop: number | null; fcr: string | null } | null;
-  const [survival, setSurvival] = useState<Record<string, CycleResult>>({});
-  const srKey = (c: Cycle) => `${c.id}:${closedEndDate(c, todayIso())}`;
-  const shownKey = shown.map(srKey).join(",");
-  useEffect(() => {
-    if (!historyOpen) return;
-    shown
-      .filter((c) => !(srKey(c) in survival))
-      .forEach((c) => {
-        const key = srKey(c);
-        api
-          .getCycleDay(c.id, closedEndDate(c, todayIso()))
-          .then((d) =>
-            setSurvival((m) => ({ ...m, [key]: { sr: d.metrics.survival_rate_pct, finalPop: d.metrics.final_population, fcr: d.metrics.fcr } })),
-          )
-          .catch(() => setSurvival((m) => ({ ...m, [key]: null })));
-      });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [historyOpen, shownKey]);
-
-  // ----- reopen the last cycle (immediate) -----
-  // Only the newest past cycle, and only while the pond runs nothing: a pond shows one current cycle.
-  const reopenable = !cycle && !readOnly ? (past[0] ?? null) : null;
-  const [reopenConfirm, setReopenConfirm] = useState(false);
-  const [reopenBusy, setReopenBusy] = useState(false);
-  const [reopenError, setReopenError] = useState<string | null>(null);
-
-  async function doReopen() {
-    if (!reopenable) return;
-    setReopenBusy(true);
-    setReopenError(null);
-    try {
-      // Send the end date along: the backend clears it on reopen otherwise, and the cycle would run on to today.
-      await api.updateCycle(reopenable.id, { status: "active", actual_end_date: closedEndDate(reopenable, todayIso()) });
-      setReopenConfirm(false);
-      await onReload();
-    } catch (err) {
-      setReopenError(errorText(err));
-    } finally {
-      setReopenBusy(false);
-    }
-  }
-
   const summary = cycle
     ? `${cycleLabel({ name: draft?.name || cycle.name })} · DOC ${todayDoc(cycle)}${draft?.finalDoc ? ` of ${draft.finalDoc}` : ""} · ${draft?.prepDays ?? "0"}d prep · started ${niceDate(cycle.start_date)}`
     : `${prevCycle ? `${cycleLabel(prevCycle)} ${statusLabel(prevCycle.status).toLowerCase()}` : "No cycles yet"}${suggestedName ? ` · ready for ${cycleLabel({ name: suggestedName })}` : ""}`;
@@ -260,6 +210,7 @@ export function CycleSection({
   return (
     <CollapsibleSection title="Cycle" summary={summary} open={open} onToggle={onToggle}>
       <div className="flex flex-col gap-3.5 px-0.5 py-1">
+        <PastCycles past={past} allowReopen={!cycle && !readOnly} onReload={onReload} />
         {cycle && draft ? (
           <>
             <div className="flex flex-col gap-2.5 rounded-2xl border border-line bg-ink-850 p-3.5">
@@ -508,92 +459,6 @@ export function CycleSection({
         ) : null}
         {!cycle && readOnly ? <span className="text-xs text-tx-dim">No active cycle.</span> : null}
 
-        <div className="flex flex-col gap-1.5">
-          <button
-            type="button"
-            aria-expanded={historyOpen}
-            onClick={() => setHistoryOpen((v) => !v)}
-            className="flex w-full items-center gap-2.5 rounded-[10px] border border-line bg-ink-850 px-3 py-2.5 text-left"
-          >
-            <div className="flex min-w-0 flex-grow flex-col gap-0.5">
-              <span className="text-[10px] uppercase tracking-[0.08em] text-tx-soft">
-                Past cycles <span className="font-mono text-tx-faint">{past.length}</span>
-              </span>
-              <span className="truncate text-xs text-tx-dim">
-                {past.length ? `Last: ${cycleLabel(past[0])}, ${statusLabel(past[0].status).toLowerCase()} ${monthYear(past[0].actual_end_date ?? past[0].planned_end_date ?? past[0].start_date)}` : "None yet"}
-              </span>
-            </div>
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" className={`shrink-0 text-tx-dim transition-transform ${historyOpen ? "rotate-180" : ""}`}>
-              <path d="M6 9l6 6 6-6" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" />
-            </svg>
-          </button>
-          {historyOpen ? (
-            <div className="flex flex-col gap-1.5">
-              {shown.map((c) => {
-                const end = c.actual_end_date ?? c.planned_end_date ?? c.start_date;
-                const days = docFor(c.start_date, end);
-                const reason = c.status === "crashed" ? crashReasonFromNotes(c.notes) : "";
-                const canReopen = reopenable?.id === c.id;
-                const result = survival[srKey(c)];
-                return (
-                  <div key={c.id} className="flex flex-col gap-1.5">
-                    <div className="flex flex-col gap-1 rounded-[10px] bg-ink-850 px-3 py-2.5">
-                    <div className="flex items-center gap-2.5">
-                      <span className="w-16 shrink-0 text-[13px] font-semibold text-tx">{cycleLabel(c)}</span>
-                      <span className="min-w-0 flex-grow truncate text-xs text-tx-dim">
-                        {days} days · ended {monthYear(end)}
-                        {reason ? ` · ${reason}` : ""}
-                      </span>
-                      <span className={`shrink-0 text-[11px] font-bold ${statusText(c.status)}`}>{statusLabel(c.status)}</span>
-                      {canReopen && !reopenConfirm ? (
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setReopenError(null);
-                            setReopenConfirm(true);
-                          }}
-                          className="shrink-0 rounded-full border border-accent px-2.5 py-1 text-[11px] font-bold text-accent"
-                        >
-                          Reopen
-                        </button>
-                      ) : null}
-                    </div>
-                    {/* The cycle's result, from its last day: its own line so a phone width never cuts it. */}
-                    {result?.sr ? (
-                      <span className="font-mono text-[11px] text-tx-soft">
-                        SR {fmtDec(result.sr, 1)}% · final population {fmtInt(result.finalPop)} · FCR {result.fcr !== null ? fmtDec(result.fcr, 2) : "—"}
-                      </span>
-                    ) : null}
-                    </div>
-                    {canReopen && reopenConfirm ? (
-                      <div className="flex flex-col gap-2.5 rounded-xl border border-warn/40 bg-warn/[0.07] p-3">
-                        <span className="text-[13px] text-tx">
-                          Reopen {cycleLabel(c)}? It becomes the active cycle again so you can add missing logs. It keeps its end date,{" "}
-                          {niceDate(closedEndDate(c, todayIso()))}. Finish it again when you&apos;re done.
-                        </span>
-                        {reopenError ? <span className="text-xs text-bad">{reopenError}</span> : null}
-                        <div className="flex justify-end gap-1.5">
-                          <Button variant="secondary" size="sm" onClick={() => setReopenConfirm(false)} disabled={reopenBusy}>
-                            Cancel
-                          </Button>
-                          <Button variant="primary" size="sm" onClick={doReopen} disabled={reopenBusy}>
-                            Reopen cycle
-                          </Button>
-                        </div>
-                      </div>
-                    ) : null}
-                  </div>
-                );
-              })}
-              {past.length > 5 && !historyAll ? (
-                <button type="button" onClick={() => setHistoryAll(true)} className="self-start px-1 py-2 text-xs font-bold text-accent">
-                  Show all {past.length}
-                </button>
-              ) : null}
-              {past.length === 0 ? <span className="px-0.5 py-1 text-xs text-tx-dim">No past cycles yet.</span> : null}
-            </div>
-          ) : null}
-        </div>
       </div>
     </CollapsibleSection>
   );
