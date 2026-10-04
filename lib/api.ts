@@ -145,6 +145,24 @@ export type Cycle = {
   blind_feeding_target_abw_g: string | null;
   prediction_config: PredictionConfig | null;
 };
+export type FinishCheck = {
+  end_date: string;
+  stocked: number;
+  harvested_count: number;
+  harvested_kg: string;
+  survival_rate_pct: string | null;
+  feed_kg: string;
+  cycle_fcr: string | null;
+  /** The cycle's last harvest on any day: usually the right last day. */
+  last_harvest_date: string | null;
+  last_harvest_time: string | null;
+  /** Harvests after the end day; the cycle can't end before them. */
+  harvests_after_end: number;
+  /** Feeds on the last day after its final harvest: they count toward FCR. */
+  feeds_after_final_harvest: { date: string; feed_time: string; amount_kg: string }[];
+  /** The last day's ABW sample, when it was taken before that day's final harvest. */
+  sample_before_final_harvest: string | null;
+};
 /** An additive on a feeding: by catalog id or name; leave the dose out to use the cycle's last dose. */
 export type FeedingAdditiveIn = { product_id?: string; name?: string; dose_per_kg?: number };
 /** As stored on a feeding. product_id is null only for entries written before the catalogs merged. */
@@ -680,6 +698,8 @@ export const api = {
       notes?: string;
     },
   ) => request<Cycle>(`/cycles/${id}`, { method: "PUT", body: JSON.stringify(b) }),
+  /** What ending the cycle on `endDate` gives (survival rate, cycle FCR) and the end-of-cycle mistakes to fix first. */
+  getFinishCheck: (id: string, endDate: string) => request<FinishCheck>(`/cycles/${id}/finish-check?end_date=${endDate}`),
   deleteCycle: (id: string) => request<void>(`/cycles/${id}`, { method: "DELETE" }),
   createCycle: (b: {
     pond_id: string;

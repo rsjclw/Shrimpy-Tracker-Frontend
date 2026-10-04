@@ -8,6 +8,7 @@ import { api, type BlindFeedingTemplate, type Cycle, type Pond, type Product } f
 import { closedEndDate, isReopened, normalizeConfig, pastCycles, statusLabel, statusText, todayDoc, cycleLabel, nextCycleName } from "@/lib/cycles";
 import { addDays, docFor, isoForDoc, niceDate, monthYear, todayIso } from "@/lib/dates";
 import { fmtDec, fmtInt, fmtNum } from "@/lib/num";
+import { FinishPreview, finishBlocked, useFinishCheck } from "./FinishPreview";
 import { StockingEditor } from "./StockingEditor";
 import { crashReasonFromNotes, type CycleDraft, has, num } from "./types";
 
@@ -66,6 +67,9 @@ export function CycleSection({
   const [actionError, setActionError] = useState<string | null>(null);
   const [editingStock, setEditingStock] = useState(false);
   const endOk = !!cycle && !!endDate && endDate >= cycle.start_date && endDate <= todayIso();
+  // What ending on that day gives, and the end-of-cycle order mistakes to fix first.
+  const finishCheck = useFinishCheck(cycle?.id ?? null, endDate, !!confirm && endOk);
+  const blocked = finishBlocked(finishCheck.check);
 
   function openConfirm(kind: "finish" | "crash") {
     setEndDate(cycle?.actual_end_date ?? todayIso());
@@ -362,12 +366,13 @@ export function CycleSection({
                     : `Pick the last day of ${cycleLabel(cycle)}, between its start and today.`}
                 </span>
                 <EndDateField id="c-finish-end" value={endDate} min={cycle.start_date} onChange={setEndDate} />
+                {endOk ? <FinishPreview check={finishCheck.check} error={finishCheck.error} kind="finish" onUseDate={setEndDate} /> : null}
                 {actionError ? <span className="text-xs text-bad">{actionError}</span> : null}
                 <div className="flex justify-end gap-1.5">
                   <Button variant="secondary" size="sm" onClick={() => setConfirm(null)} disabled={actionBusy}>
                     Cancel
                   </Button>
-                  <Button variant="primary" size="sm" onClick={doFinish} disabled={actionBusy || !endOk}>
+                  <Button variant="primary" size="sm" onClick={doFinish} disabled={actionBusy || !endOk || blocked}>
                     Finish cycle
                   </Button>
                 </div>
@@ -382,6 +387,7 @@ export function CycleSection({
                     : `Pick the last day of ${cycleLabel(cycle)}, between its start and today.`}
                 </span>
                 <EndDateField id="c-crash-end" value={endDate} min={cycle.start_date} onChange={setEndDate} />
+                {endOk ? <FinishPreview check={finishCheck.check} error={finishCheck.error} kind="crash" onUseDate={setEndDate} /> : null}
                 <div className="flex flex-col gap-1">
                   <label htmlFor="c-reason" className="field-label">
                     What happened?
@@ -400,7 +406,7 @@ export function CycleSection({
                   <Button variant="secondary" size="sm" onClick={() => setConfirm(null)} disabled={actionBusy}>
                     Cancel
                   </Button>
-                  <Button variant="danger-solid" size="sm" onClick={doCrash} disabled={actionBusy || !crashReason.trim() || !endOk}>
+                  <Button variant="danger-solid" size="sm" onClick={doCrash} disabled={actionBusy || !crashReason.trim() || !endOk || blocked}>
                     Crash cycle
                   </Button>
                 </div>

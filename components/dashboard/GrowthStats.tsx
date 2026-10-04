@@ -213,6 +213,8 @@ export function GrowthStats({
             <div className="truncate font-mono text-[10px] text-tx-faint">
               {fmtInt(day.metrics.harvested_count)} harvested of {fmtInt(stocked)} stocked
             </div>
+            {/* With the pond empty, the day's FCR is the whole cycle's: total feed over total harvest. */}
+            <div className="truncate font-mono text-[10px] text-tx-soft">Cycle FCR {day.metrics.fcr !== null ? fmtDec(day.metrics.fcr, 2) : "—"}</div>
           </div>
         ) : null}
       </div>
