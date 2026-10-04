@@ -471,6 +471,8 @@ export type DayView = {
   abw_g: string | null;
   abw_sample_time: string | null;
   notes: string | null;
+  /** Dead shrimp found that day; tracked only, it never changes population. */
+  mortality_count: number | null;
   sampling: SamplingMetrics;
   default_feed_types: FeedingFeedType[];
   feedings: Feeding[];
@@ -732,7 +734,7 @@ export const api = {
   upsertCycleDay: (
     cycleId: string,
     day: string,
-    b: { abw_g?: number | null; abw_sample_time?: string | null; notes?: string | null },
+    b: { abw_g?: number | null; abw_sample_time?: string | null; notes?: string | null; mortality_count?: number | null },
   ) =>
     request<DayView>(`/cycles/${cycleId}/days/${day}`, {
       method: "PUT",

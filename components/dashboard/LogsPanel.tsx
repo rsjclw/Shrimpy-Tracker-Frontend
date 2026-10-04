@@ -33,12 +33,13 @@ const KIND = {
   sampling: { label: "Sampling", text: "text-accent", border: "border-accent/50" },
   harvest: { label: "Harvest", text: "text-warn", border: "border-warn/50" },
   population: { label: "Population", text: "text-violet", border: "border-violet/50" },
+  mortality: { label: "Mortality", text: "text-bad", border: "border-bad/50" },
 };
 
 type Form = { kind: LogKind; editId?: string; fields: Record<string, string> };
 
 export function canLogKind(perms: Perms, kind: LogKind) {
-  // The backend lets operators add harvests and population counts; the ABW sample lives on the day log, which needs a maintainer.
+  // The backend lets operators add harvests, population counts and dead shrimp; the ABW sample on the day log needs a maintainer.
   return kind === "sampling" ? perms.canManage : perms.canAdd;
 }
 
@@ -115,6 +116,21 @@ export function SamplingHarvestLog({ ctx, requested, onRequestHandled }: { ctx: 
       ],
     });
   });
+  if (day.mortality_count !== null) {
+    const dead = day.mortality_count;
+    const pop = day.metrics.estimated_population;
+    rows.push({
+      id: "mortality",
+      kind: "mortality",
+      time: "—",
+      summary: `${fmtInt(dead)} pcs`,
+      details: [
+        ["Dead shrimp", `${fmtInt(dead)} pcs`],
+        // Tracked only: the population estimate does not drop by it.
+        ["Of the population", pop ? `${((dead / pop) * 100).toFixed(3)}%` : "—"],
+      ],
+    });
+  }
   if (popToday !== null && popBefore !== null && popToday !== popBefore && day.harvests.length === 0) {
     rows.push({
       id: "population",
@@ -138,6 +154,8 @@ export function SamplingHarvestLog({ ctx, requested, onRequestHandled }: { ctx: 
     } else if (kind === "harvest") {
       const h = editRow?.harvest;
       Object.assign(f, h ? { time: hhmm(h.harvest_time), kg: String(num(h.biomass_kg)), abw: String(num(h.sampled_abw_g)), revenue: String(num(h.total_price)) } : { kg: "", abw: lastSampling ? String(lastSampling.abw) : "", revenue: "" });
+    } else if (kind === "mortality") {
+      f.count = day.mortality_count !== null ? String(day.mortality_count) : "";
     } else {
       f.pop = popToday !== null && editRow ? String(popToday) : "";
     }
@@ -159,7 +177,9 @@ export function SamplingHarvestLog({ ctx, requested, onRequestHandled }: { ctx: 
   const valid = (fm: Form | null) => {
     if (!fm) return false;
     const f = fm.fields;
-    if (fm.kind !== "population" && !valid24(f.time)) return false;
+    if (fm.kind !== "population" && fm.kind !== "mortality" && !valid24(f.time)) return false;
+    // 0 is a real entry: checked, none found.
+    if (fm.kind === "mortality") return f.count.trim() !== "" && Number.isInteger(num(f.count)) && num(f.count) >= 0;
     if (fm.kind === "sampling") return num(f.abw) > 0;
     if (fm.kind === "harvest") return num(f.kg) > 0 && num(f.abw) > 0 && num(f.revenue) >= 0;
     return num(f.pop) > 0;
@@ -177,6 +197,8 @@ export function SamplingHarvestLog({ ctx, requested, onRequestHandled }: { ctx: 
         const body = { harvest_time: f.time, biomass_kg: num(f.kg), sampled_abw_g: num(f.abw), total_price: num(f.revenue) || 0 };
         if (form.editId) await api.updateHarvest(form.editId, body);
         else await api.createHarvest(await ctx.ensureLogId(), body);
+      } else if (form.kind === "mortality") {
+        await api.upsertCycleDay(ctx.cycleId, day.date, { mortality_count: Math.trunc(num(f.count)) });
       } else {
         await api.createSample(ctx.cycleId, { date: day.date, population: Math.round(num(f.pop)) });
       }
@@ -196,6 +218,7 @@ export function SamplingHarvestLog({ ctx, requested, onRequestHandled }: { ctx: 
     try {
       if (r.kind === "sampling") await api.upsertCycleDay(ctx.cycleId, day.date, { abw_g: null, abw_sample_time: null });
       else if (r.kind === "harvest") await api.deleteHarvest(r.id);
+      else if (r.kind === "mortality") await api.upsertCycleDay(ctx.cycleId, day.date, { mortality_count: null });
       setRow(null);
       setConfirmDelete(null);
       ctx.onSaved();
@@ -222,6 +245,9 @@ export function SamplingHarvestLog({ ctx, requested, onRequestHandled }: { ctx: 
       if (num(f.revenue) > 0) preview.push(`Avg price ${rupiah(num(f.revenue) / num(f.kg))} /kg`);
       const before = popBefore ?? popToday;
       if (before) preview.push(`Population ${fmtInt(before)} → ${fmtInt(Math.max(0, before - pieces))}`);
+    } else if (form.kind === "mortality") {
+      const pop = day.metrics.estimated_population;
+      preview.push(pop ? `≈ ${((num(f.count) / pop) * 100).toFixed(3)}% of the population · tracked only, population unchanged` : "Tracked only, population unchanged");
     } else {
       const before = popBefore ?? popToday;
       const n = num(f.pop);
@@ -236,7 +262,7 @@ export function SamplingHarvestLog({ ctx, requested, onRequestHandled }: { ctx: 
     .filter(Boolean)
     .join(" · ");
 
-  const addable = (["sampling", "harvest", "population"] as LogKind[]).filter((k) => canLogKind(perms, k) && !(k === "harvest" && harvestLocked));
+  const addable = (["sampling", "harvest", "population", "mortality"] as LogKind[]).filter((k) => canLogKind(perms, k) && !(k === "harvest" && harvestLocked));
 
   return (
     <div className="flex flex-col gap-2">
@@ -255,7 +281,7 @@ export function SamplingHarvestLog({ ctx, requested, onRequestHandled }: { ctx: 
           {rows.map((r) => {
             const isOpen = row === r.id;
             const k = KIND[r.kind];
-            const editable = perms.canManage && !(r.kind === "harvest" && harvestLocked);
+            const editable = r.kind === "mortality" ? perms.canAdd : perms.canManage && !(r.kind === "harvest" && harvestLocked);
             return (
               <div key={r.id} className={`rounded-[10px] border bg-ink-850 ${isOpen ? k.border : "border-ink-850"}`}>
                 <button type="button" onClick={() => setRow(isOpen ? null : r.id)} aria-expanded={isOpen} aria-label={`${k.label} details`} className="flex w-full items-center gap-2 px-[11px] py-[9px] text-left">
@@ -279,7 +305,9 @@ export function SamplingHarvestLog({ ctx, requested, onRequestHandled }: { ctx: 
                         message={
                           r.kind === "sampling"
                             ? `Delete this sampling (${r.time} · ${r.summary})? ABW, ADG and FCR from this day on will be recalculated.`
-                            : `Delete this harvest (${r.time} · ${r.summary})? Population, biomass and FCR from this day on will be recalculated.`
+                            : r.kind === "mortality"
+                              ? `Delete this day's mortality (${r.summary})?`
+                              : `Delete this harvest (${r.time} · ${r.summary})? Population, biomass and FCR from this day on will be recalculated.`
                         }
                         onCancel={() => setConfirmDelete(null)}
                         onConfirm={() => remove(r)}
@@ -318,7 +346,8 @@ export function SamplingHarvestLog({ ctx, requested, onRequestHandled }: { ctx: 
                 <span className="font-mono text-[10px] text-tx-muted">Saving to {ctx.saveContext}</span>
               </div>
               <div className="grid grid-cols-2 gap-2">
-                {form.kind !== "population" ? <FormField cycleId={ctx.cycleId} id="time" label="Time" value={form.fields.time} mode="numeric" placeholder="HH:MM" onChange={(v) => setField("time", fmt24(v))} /> : null}
+                {form.kind !== "population" && form.kind !== "mortality" ? <FormField cycleId={ctx.cycleId} id="time" label="Time" value={form.fields.time} mode="numeric" placeholder="HH:MM" onChange={(v) => setField("time", fmt24(v))} /> : null}
+                {form.kind === "mortality" ? <FormField cycleId={ctx.cycleId} id="count" label="Dead shrimp (pcs)" value={form.fields.count} mode="numeric" placeholder="0" onChange={(v) => setField("count", intInput(v))} /> : null}
                 {form.kind === "sampling" ? <FormField cycleId={ctx.cycleId} id="abw" label="ABW (g)" value={form.fields.abw} mode="decimal" placeholder="0.0" onChange={(v) => setField("abw", decimalInput(v, 2))} /> : null}
                 {form.kind === "harvest" ? (
                   <>
@@ -380,13 +409,13 @@ export function SamplingHarvestLog({ ctx, requested, onRequestHandled }: { ctx: 
           ) : null}
 
           {!form && addable.length ? (
-            <div className="grid gap-1.5" style={{ gridTemplateColumns: `repeat(${addable.length}, minmax(0, 1fr))` }}>
+            <div className="grid gap-1.5" style={{ gridTemplateColumns: `repeat(${addable.length > 3 ? 2 : addable.length}, minmax(0, 1fr))` }}>
               {addable.map((k) => (
                 <button
                   key={k}
                   type="button"
                   onClick={() => startForm(k)}
-                  className={`rounded-lg border border-dashed border-line-dash px-1 py-[9px] text-center text-xs font-semibold ${k === "sampling" ? "text-accent" : k === "harvest" ? "text-warn" : "text-violet"}`}
+                  className={`rounded-lg border border-dashed border-line-dash px-1 py-[9px] text-center text-xs font-semibold ${k === "sampling" ? "text-accent" : k === "harvest" ? "text-warn" : k === "mortality" ? "text-bad" : "text-violet"}`}
                 >
                   + {KIND[k].label}
                 </button>

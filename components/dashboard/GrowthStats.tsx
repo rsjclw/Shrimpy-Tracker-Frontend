@@ -11,7 +11,7 @@ import { dayFeedKg } from "./model";
 import type { Growth } from "./usePondData";
 
 type StatId = "dailyFeed" | "totalFeed" | "abw" | "biomass" | "adg" | "fcr" | "population" | "harvested";
-export type LogKind = "sampling" | "harvest" | "population";
+export type LogKind = "sampling" | "harvest" | "population" | "mortality";
 
 const STATS: { id: StatId; label: string; metric: string }[] = [
   { id: "dailyFeed", label: "Daily feed", metric: "daily_feed_kg" },

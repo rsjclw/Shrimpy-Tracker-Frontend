@@ -28,6 +28,9 @@ export const METRIC_DEFS: MetricDef[] = [
   { key: "harvest_biomass_kg", label: "Harvest biomass", group: "Daily metrics", unit: "kg", axisGroup: "biomass" },
   { key: "fcr", label: "FCR", group: "Daily metrics", unit: "", axisGroup: "fcr" },
   { key: "sample_fcr", label: "Sample FCR", group: "Daily metrics", unit: "", axisGroup: "fcr" },
+  // Dead shrimp found, tracked only: neither moves population.
+  { key: "mortality_count", label: "Mortality", group: "Daily metrics", unit: "pcs", axisGroup: "mortality" },
+  { key: "cumulative_mortality", label: "Cumulative mortality", group: "Daily metrics", unit: "pcs", axisGroup: "cumulative_mortality" },
 
   { key: "do_am", label: "DO am", group: "Water parameters", unit: "mg/L", axisGroup: "do" },
   { key: "do_pm", label: "DO pm", group: "Water parameters", unit: "mg/L", axisGroup: "do" },
