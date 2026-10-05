@@ -144,7 +144,11 @@ export default function Dashboard() {
     () => (data && grid ? data.ponds.filter((p) => p.grid_id === grid.id).sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true })) : []),
     [data, grid],
   );
-  const active = gridPonds.map((p) => ({ pond: p, cycle: data ? currentCycle(data.cycles, p.id) : null })).filter((x): x is { pond: Pond; cycle: Cycle } => !!x.cycle);
+  // Running ponds first, ponds in preparation below them; name order within each group.
+  const active = gridPonds
+    .map((p) => ({ pond: p, cycle: data ? currentCycle(data.cycles, p.id) : null }))
+    .filter((x): x is { pond: Pond; cycle: Cycle } => !!x.cycle)
+    .sort((a, b) => Number(isPreparing(a.cycle)) - Number(isPreparing(b.cycle)));
   const inactive = gridPonds.filter((p) => !active.some((a) => a.pond.id === p.id));
   const preparing = active.filter((a) => isPreparing(a.cycle)).length;
 
