@@ -132,6 +132,9 @@ export function CycleSection({
   const copying = copyTargets && !!prevCycle?.prediction_config;
   const [startBusy, setStartBusy] = useState(false);
   const [startError, setStartError] = useState<string | null>(null);
+  // Set once the new cycle exists, until the page shows it: the form stays filled in
+  // meanwhile, and must not create the cycle a second time.
+  const [created, setCreated] = useState(false);
   // A new cycle normally starts with pond preparation; "Stock now" skips it.
   const [startMode, setStartMode] = useState<"prepare" | "stock">("prepare");
   const prevPrepDays = prevCycle?.prediction_config ? Math.trunc(num(normalizeConfig(prevCycle.prediction_config).cycle.preparation_day)) || 14 : 14;
@@ -164,11 +167,22 @@ export function CycleSection({
         ...(plannedEnd ? { planned_end_date: plannedEnd } : {}),
         ...(config && config.feed_plan.length >= 1 ? { prediction_config: config } : {}),
       });
-      setNewName("");
-      setCopyTargets(true);
-      await onReload();
     } catch (err) {
       setStartError(errorText(err));
+      setStartBusy(false);
+      return;
+    }
+    await showCreated();
+  }
+
+  // The form is left as it is (clearing it here flashed "Cycle name is empty" while the
+  // page refreshed); it is reset when it next appears, after this cycle ends.
+  async function showCreated() {
+    setCreated(true);
+    try {
+      await onReload();
+    } catch (err) {
+      setStartError(`The cycle was created, but the page didn't refresh (${errorText(err)}). Reload the page.`);
     } finally {
       setStartBusy(false);
     }
@@ -184,7 +198,15 @@ export function CycleSection({
       setNewPop("");
       setNewAbw("0");
       setNewPrep("14");
+      setNewTemplateId("");
+      setNewTargetAbw("");
+      setCopyTargets(true);
+      setStartMode("prepare");
+      setNewPrepStart(todayIso());
+      setNewPlanned(addDays(todayIso(), prevPrepDays));
+      setStartError(null);
     }
+    if (cycle) setCreated(false);
     hadCycle.current = !!cycle;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cycle]);
@@ -227,20 +249,12 @@ export function CycleSection({
         ...(plannedEndDate ? { planned_end_date: plannedEndDate } : {}),
         ...(config && config.feed_plan.length >= 1 ? { prediction_config: config } : {}),
       });
-      setNewName("");
-      setNewStart(todayIso());
-      setNewPop("");
-      setNewAbw("0");
-      setNewPrep("14");
-      setNewTemplateId("");
-      setNewTargetAbw("");
-      setCopyTargets(true);
-      await onReload();
     } catch (err) {
       setStartError(errorText(err));
-    } finally {
       setStartBusy(false);
+      return;
     }
+    await showCreated();
   }
 
   const summary = cycle && isPreparing(cycle)
@@ -472,7 +486,7 @@ export function CycleSection({
                 ) : null}
                 {prepErrors.length ? <span className="text-xs text-bad">{prepErrors[0]}</span> : null}
                 {startError ? <span className="text-xs text-bad">{startError}</span> : null}
-                <Button variant="primary" size="lg" block onClick={startPreparing} disabled={startBusy || prepErrors.length > 0}>
+                <Button variant="primary" size="lg" block onClick={startPreparing} disabled={startBusy || created || prepErrors.length > 0}>
                   Start preparing
                 </Button>
               </>
@@ -558,7 +572,7 @@ export function CycleSection({
             ) : null}
             {startErrors.length ? <span className="text-xs text-bad">{startErrors[0]}</span> : null}
             {startError ? <span className="text-xs text-bad">{startError}</span> : null}
-            <Button variant="primary" size="lg" block onClick={startCycle} disabled={startBusy || startErrors.length > 0}>
+            <Button variant="primary" size="lg" block onClick={startCycle} disabled={startBusy || created || startErrors.length > 0}>
               Start new cycle
             </Button>
               </>
