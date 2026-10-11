@@ -94,20 +94,6 @@ export type Pond = {
   /** The warehouse this pond draws from; null means it moves no stock. */
   warehouse_id: string | null;
 };
-export type PlaceKind = "reservoir" | "bore_well";
-/** A grid's water that isn't a pond. A reservoir has a size; a bore well never does. */
-export type Place = {
-  id: string;
-  grid_id: string;
-  kind: PlaceKind;
-  name: string;
-  width_m: string | null;
-  length_m: string | null;
-  /** width_m × length_m; null until both are known. */
-  area_m2: string | null;
-  notes: string | null;
-};
-type PlaceFields = { name: string; width_m: number | null; length_m: number | null; notes: string | null };
 /** Width and length (the API sets the area from them), or just an area for a pond nobody has measured. */
 export type PondSize = { width_m: number; length_m: number } | { area_m2: number };
 export type PredictionConfig = {
@@ -742,13 +728,6 @@ export const api = {
   createPond: (b: { grid_id: string; name: string; default_feed_time?: string } & PondSize) =>
     request<Pond>("/ponds", { method: "POST", body: JSON.stringify(b) }),
   getPond: (id: string) => request<Pond>(`/ponds/${id}`),
-
-  listGridPlaces: (gridId: string) => request<Place[]>(`/places?grid_id=${gridId}`),
-  createPlace: (b: { grid_id: string; kind: PlaceKind } & PlaceFields) =>
-    request<Place>("/places", { method: "POST", body: JSON.stringify(b) }),
-  /** PUT replaces every field, notes included. */
-  updatePlace: (id: string, b: PlaceFields) => request<Place>(`/places/${id}`, { method: "PUT", body: JSON.stringify(b) }),
-  deletePlace: (id: string) => request<void>(`/places/${id}`, { method: "DELETE" }),
   listPondCycles: (pondId: string) => request<Cycle[]>(`/ponds/${pondId}/cycles`),
 
   listCycles: (farmId?: string) =>

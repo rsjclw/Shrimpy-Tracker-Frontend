@@ -3,7 +3,6 @@
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 
-import { GridPlaces } from "@/components/dashboard/GridPlaces";
 import { Icon } from "@/components/ui/Icon";
 import { api, type Farm, type Grid } from "@/lib/api";
 import { ROLE_LABEL, canManage as canManageRole } from "@/lib/roles";
@@ -294,7 +293,7 @@ function GridSettings({
   }
 
   return (
-    <div className="absolute right-0 top-[calc(100%+6px)] z-[25] flex max-h-[calc(100vh-120px)] w-[290px] flex-col gap-3 overflow-y-auto rounded-[14px] border border-accent bg-ink-800 p-3.5 shadow-[0_12px_32px_rgba(0,0,0,0.45)]">
+    <div className="absolute right-0 top-[calc(100%+6px)] z-[25] flex w-[290px] flex-col gap-3 rounded-[14px] border border-accent bg-ink-800 p-3.5 shadow-[0_12px_32px_rgba(0,0,0,0.45)]">
       <div className="flex flex-col gap-0.5">
         <span className="text-sm font-bold text-tx-strong">{grid ? `${grid.name} settings` : "New grid"}</span>
         <span className="text-[11px] text-tx-muted">Location is used for the weather and moon of every pond in this grid.</span>
@@ -335,8 +334,6 @@ function GridSettings({
           {busy ? "Saving…" : "Save"}
         </button>
       </div>
-      {/* Below the grid's own Save: reservoirs and wells save on their own. */}
-      {mode === "edit" && grid ? <GridPlaces gridId={grid.id} /> : null}
     </div>
   );
 }
