@@ -15,8 +15,10 @@ export type FeedRow = {
   time: string;
   kg: string;
   minutes: string;
-  /** Feed type id, "" for none, "__keep" to keep an existing multi-type mix. */
+  /** Feed type id, "" for none, "__keep" for the mix in `mix`. */
   feedTypeId: string;
+  /** The feed types the row came with: the mix behind "__keep", and the label of an id the catalog no longer lists. */
+  mix: FeedingFeedType[];
   /** Catalog entry id, "" for none, "__keep" to keep existing additives unchanged. */
   additive: string;
   /** Dose for the chosen additive, in its own unit; blank uses the cycle's last dose. */
@@ -25,7 +27,17 @@ export type FeedRow = {
   locked: boolean;
 };
 
-export function rowFromFeeding(f: Feeding, locked: boolean): FeedRow {
+/** How a row shows a set of feed types: one feed by its id, a mix as "__keep". */
+function typeChoice(types: FeedingFeedType[]): Pick<FeedRow, "feedTypeId" | "mix"> {
+  if (types.length === 1) return { feedTypeId: types[0].product_id ?? types[0].feed_type_id ?? "", mix: types };
+  return { feedTypeId: types.length ? "__keep" : "", mix: types };
+}
+
+/**
+ * A saved feeding as an editable row. A feeding with no feed type of its own (the
+ * forecast writes them that way) was fed the pond's previous feed, `fallback`.
+ */
+export function rowFromFeeding(f: Feeding, locked: boolean, fallback: FeedingFeedType[] = []): FeedRow {
   return {
     key: f.id,
     id: f.id,
@@ -33,7 +45,7 @@ export function rowFromFeeding(f: Feeding, locked: boolean): FeedRow {
     time: hhmm(f.feed_time),
     kg: String(Math.round(num(f.amount_kg) * 10) / 10),
     minutes: f.duration_min !== null && f.duration_min !== undefined ? String(f.duration_min) : "",
-    feedTypeId: f.feed_types.length === 1 ? f.feed_types[0].product_id ?? f.feed_types[0].feed_type_id ?? "" : f.feed_types.length ? "__keep" : "",
+    ...typeChoice(f.feed_types.length ? f.feed_types : fallback),
     additive: f.additives.length === 1 && f.additives[0].product_id !== null ? f.additives[0].product_id : f.additives.length ? "__keep" : "",
     dose: f.additives.length === 1 ? String(num(f.additives[0].dose_per_kg)) : "",
     locked,
@@ -41,9 +53,9 @@ export function rowFromFeeding(f: Feeding, locked: boolean): FeedRow {
 }
 
 /**
- * A fresh row, seeded from what the pond was last fed: the feed, and the additive
- * that went with it. The dose is deliberately left blank - the server fills it
- * from the last dose in this cycle, then the last anywhere on the farm.
+ * A fresh row, seeded from what the pond was last fed: the feed (a mix included),
+ * and the additive that went with it. The dose is deliberately left blank - the
+ * server fills it from the last dose in this cycle, then the last anywhere on the farm.
  */
 export function blankRow(time: string, types: FeedingFeedType[], additive = ""): FeedRow {
   return {
@@ -51,7 +63,7 @@ export function blankRow(time: string, types: FeedingFeedType[], additive = ""):
     time,
     kg: "",
     minutes: "",
-    feedTypeId: types[0]?.product_id ?? "",
+    ...typeChoice(types),
     additive,
     dose: "",
     locked: false,
@@ -371,9 +383,9 @@ export function FeedEditor({
             <Mini label="Feed type" id={`${r.key}-type`}>
               <select id={`${r.key}-type`} disabled={r.locked} value={r.feedTypeId} onChange={(e) => update(r.key, { feedTypeId: e.target.value })} className="input-xs font-sans">
                 <option value="">None</option>
-                {r.feedTypeId === "__keep" && r.original ? <option value="__keep">{feedTypeLabel(r.original.feed_types)}</option> : null}
-                {r.feedTypeId && r.feedTypeId !== "__keep" && !feeds.some((t) => t.id === r.feedTypeId) && r.original ? (
-                  <option value={r.feedTypeId}>{feedTypeLabel(r.original.feed_types)}</option>
+                {r.mix.length > 1 ? <option value="__keep">{feedTypeLabel(r.mix)}</option> : null}
+                {r.feedTypeId && r.feedTypeId !== "__keep" && !feeds.some((t) => t.id === r.feedTypeId) ? (
+                  <option value={r.feedTypeId}>{feedTypeLabel(r.mix)}</option>
                 ) : null}
                 {feeds.map((t) => (
                   <option key={t.id} value={t.id}>
@@ -426,8 +438,10 @@ export function FeedEditor({
       <button
         type="button"
         onClick={() => {
+          // A new feed continues the one above it, a mix included; the first one starts from the previous feed.
           const last = rows.at(-1);
-          setRows((rs) => [...rs, { ...blankRow("", defaultTypes, defaultAdditive), feedTypeId: last?.feedTypeId === "__keep" ? "" : last?.feedTypeId ?? defaultTypes[0]?.product_id ?? "" }]);
+          const next = blankRow("", defaultTypes, defaultAdditive);
+          setRows((rs) => [...rs, last ? { ...next, feedTypeId: last.feedTypeId, mix: last.mix } : next]);
         }}
         className="flex items-center justify-center gap-1.5 rounded-[10px] border border-dashed border-line-dash p-2.5 text-xs font-semibold text-accent"
       >

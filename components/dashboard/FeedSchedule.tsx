@@ -73,10 +73,15 @@ export function FeedSchedule({
   const relLabel = (d: DayView) => (docFor(d.date, day.date) === 2 ? "yesterday" : `DOC ${d.metrics.doc}`);
 
   const feeds = useMemo(() => products.filter((p) => p.category === "feed"), [products]);
+  /**
+   * The pond's previous feed: the server's latest recorded mix on or before this day.
+   * New rows start from it, and a feeding without a feed type of its own (the
+   * forecast writes them that way) was fed it.
+   */
   const defaultTypes: FeedingFeedType[] = useMemo(() => {
     if (day.default_feed_types.length) return day.default_feed_types;
     const last = prevFeedDay ? sortFeedings(prevFeedDay.feedings).at(-1) : null;
-    return last?.feed_types ?? [];
+    return last?.feed_types.length ? last.feed_types : prevFeedDay?.default_feed_types ?? [];
   }, [day.default_feed_types, prevFeedDay]);
 
   /**
@@ -102,12 +107,12 @@ export function FeedSchedule({
       .catch(() => setDoses({}));
   }
 
-  const existingRows = () => feedings.map((f) => rowFromFeeding(f, !perms.canManage));
+  const existingRows = () => feedings.map((f) => rowFromFeeding(f, !perms.canManage, defaultTypes));
 
   function copiedRows(): FeedRow[] {
     if (!prevFeedDay) return [];
     return sortFeedings(prevFeedDay.feedings).map((f) => ({
-      ...rowFromFeeding(f, false),
+      ...rowFromFeeding(f, false, prevFeedDay.default_feed_types),
       id: undefined,
       original: undefined,
       minutes: "",
@@ -194,7 +199,7 @@ export function FeedSchedule({
       {!editing ? (
         <div className="flex flex-col gap-1.5">
           {feedings.map((f, i) => (
-            <FeedRowView key={f.id} feeding={f} status={statuses[i]} open={openRow === f.id} onToggle={() => setOpenRow(openRow === f.id ? null : f.id)} />
+            <FeedRowView key={f.id} feeding={f} fallbackTypes={defaultTypes} status={statuses[i]} open={openRow === f.id} onToggle={() => setOpenRow(openRow === f.id ? null : f.id)} />
           ))}
           {feedings.length === 0 ? (
             <div className="flex flex-col gap-2.5 rounded-[10px] bg-ink-850 p-3">
@@ -258,11 +263,24 @@ function QuickButton({ children, onClick }: { children: React.ReactNode; onClick
   );
 }
 
-function FeedRowView({ feeding: f, status, open, onToggle }: { feeding: Feeding; status: FeedStatus; open: boolean; onToggle: () => void }) {
+function FeedRowView({
+  feeding: f,
+  fallbackTypes,
+  status,
+  open,
+  onToggle,
+}: {
+  feeding: Feeding;
+  /** The pond's previous feed, shown for a feeding without a feed type of its own. */
+  fallbackTypes: FeedingFeedType[];
+  status: FeedStatus;
+  open: boolean;
+  onToggle: () => void;
+}) {
   const done = status === "done";
   const slow = isSlowTray(f);
   const tag = TAG[status] ?? "";
-  const detail = [feedTypeLabel(f.feed_types), additiveLabel(f.additives)].filter(Boolean).join(" · ");
+  const detail = [feedTypeLabel(f.feed_types.length ? f.feed_types : fallbackTypes), additiveLabel(f.additives)].filter(Boolean).join(" · ");
   return (
     <div className={`rounded-[10px] border ${status === "next" ? "border-accent/35 bg-accent/[0.08]" : "border-ink-850 bg-ink-850"}`}>
       <button type="button" onClick={onToggle} aria-expanded={open} className="flex w-full items-start gap-2.5 px-[11px] py-[9px] text-left">
@@ -294,9 +312,10 @@ function FeedRowView({ feeding: f, status, open, onToggle }: { feeding: Feeding;
 // ---- payload helpers ----
 
 export function feedTypesFor(r: FeedRow, catalog: Product[]): FeedingFeedType[] {
-  if (r.feedTypeId === "__keep") return r.original?.feed_types ?? [];
+  if (r.feedTypeId === "__keep") return r.mix;
   const t = catalog.find((x) => x.id === r.feedTypeId);
-  if (!t) return [];
+  // A feed the catalog no longer lists stays as the row had it, rather than vanishing on save.
+  if (!t) return r.mix.length === 1 && (r.mix[0].product_id ?? r.mix[0].feed_type_id) === r.feedTypeId ? r.mix : [];
   return [{ product_id: t.id, name: t.name, price_per_unit: t.price_per_unit, percentage: "100", notes: t.notes }];
 }
 
