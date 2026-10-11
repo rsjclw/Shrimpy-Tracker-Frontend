@@ -1,5 +1,6 @@
 import type { DayView, Feeding, FeedingAdditive, FeedingFeedType, WaterParameterSourceKey } from "@/lib/api";
 import { hhmm } from "@/lib/dates";
+import { formatFeedTypeName } from "@/lib/format";
 import { fmtNum, num } from "@/lib/num";
 import { SLOW_TRAY_MIN, outOfRange, shareTooHigh } from "@/lib/thresholds";
 
@@ -126,10 +127,10 @@ export function isSlowTray(f: Feeding): boolean {
   return f.duration_min !== null && f.duration_min !== undefined && f.duration_min > SLOW_TRAY_MIN;
 }
 
-export function feedTypeLabel(types: Pick<FeedingFeedType, "brand" | "type" | "percentage">[]): string {
+export function feedTypeLabel(types: Pick<FeedingFeedType, "name" | "brand" | "type" | "percentage">[]): string {
   if (!types.length) return "";
-  if (types.length === 1) return `${types[0].brand} ${types[0].type}`.trim();
-  return types.map((t) => `${t.type} ${Math.round(num(t.percentage))}%`).join(" + ");
+  if (types.length === 1) return formatFeedTypeName(types[0]);
+  return types.map((t) => `${formatFeedTypeName(t)} ${Math.round(num(t.percentage))}%`).join(" + ");
 }
 
 export function additiveLabel(additives: FeedingAdditive[]): string {

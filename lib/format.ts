@@ -12,8 +12,10 @@ export function formatFeedKg(value: string | number): string {
   return Number(value).toFixed(1);
 }
 
-export function formatFeedTypeName(feedType: Pick<FeedingFeedType, "brand" | "type">): string {
-  return `${feedType.brand} ${feedType.type}`.trim();
+// `name` is the current shape. Feedings saved before the catalogs merged carry
+// `brand` and `type` instead, and the current shape leaves those null.
+export function formatFeedTypeName(feedType: Pick<FeedingFeedType, "name" | "brand" | "type">): string {
+  return feedType.name || [feedType.brand, feedType.type].filter(Boolean).join(" ");
 }
 
 export function feedTypeTotal(feedTypes: FeedingFeedType[]): number {
