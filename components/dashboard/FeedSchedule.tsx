@@ -74,15 +74,27 @@ export function FeedSchedule({
 
   const feeds = useMemo(() => products.filter((p) => p.category === "feed"), [products]);
   /**
-   * The pond's previous feed: the server's latest recorded mix on or before this day.
-   * New rows start from it, and a feeding without a feed type of its own (the
-   * forecast writes them that way) was fed it.
+   * What each feeding was fed. A feeding without a feed type of its own (the forecast
+   * writes them that way, and so does saving one that was never given a feed) was fed
+   * the feed of the feeding before it; the first starts from the last feeding of the
+   * previous day. `defaultTypes`, where the day ends, is what new rows start from.
+   * Per feeding rather than the server's per-day default, which on a day whose 14:00
+   * feed was changed would show that change on the 06:00 feed too.
    */
-  const defaultTypes: FeedingFeedType[] = useMemo(() => {
-    if (day.default_feed_types.length) return day.default_feed_types;
+  const { fedTypes, defaultTypes } = useMemo(() => {
     const last = prevFeedDay ? sortFeedings(prevFeedDay.feedings).at(-1) : null;
-    return last?.feed_types.length ? last.feed_types : prevFeedDay?.default_feed_types ?? [];
-  }, [day.default_feed_types, prevFeedDay]);
+    let running: FeedingFeedType[] = last
+      ? last.feed_types.length
+        ? last.feed_types
+        : prevFeedDay!.default_feed_types
+      : day.default_feed_types;
+    const fed = new Map<string, FeedingFeedType[]>();
+    for (const f of sortFeedings(day.feedings)) {
+      if (f.feed_types.length) running = f.feed_types;
+      fed.set(f.id, running);
+    }
+    return { fedTypes: fed, defaultTypes: running };
+  }, [day.feedings, day.default_feed_types, prevFeedDay]);
 
   /**
    * The additive the pond was last given, so a new day does not start by picking
@@ -107,7 +119,7 @@ export function FeedSchedule({
       .catch(() => setDoses({}));
   }
 
-  const existingRows = () => feedings.map((f) => rowFromFeeding(f, !perms.canManage, defaultTypes));
+  const existingRows = () => feedings.map((f) => rowFromFeeding(f, !perms.canManage, fedTypes.get(f.id)));
 
   function copiedRows(): FeedRow[] {
     if (!prevFeedDay) return [];
@@ -199,7 +211,7 @@ export function FeedSchedule({
       {!editing ? (
         <div className="flex flex-col gap-1.5">
           {feedings.map((f, i) => (
-            <FeedRowView key={f.id} feeding={f} fallbackTypes={defaultTypes} status={statuses[i]} open={openRow === f.id} onToggle={() => setOpenRow(openRow === f.id ? null : f.id)} />
+            <FeedRowView key={f.id} feeding={f} fallbackTypes={fedTypes.get(f.id) ?? []} status={statuses[i]} open={openRow === f.id} onToggle={() => setOpenRow(openRow === f.id ? null : f.id)} />
           ))}
           {feedings.length === 0 ? (
             <div className="flex flex-col gap-2.5 rounded-[10px] bg-ink-850 p-3">
@@ -312,6 +324,8 @@ function FeedRowView({
 // ---- payload helpers ----
 
 export function feedTypesFor(r: FeedRow, catalog: Product[]): FeedingFeedType[] {
+  // Still on the previous feed: save it without one so it goes on following that feed.
+  if (r.inherited) return [];
   if (r.feedTypeId === "__keep") return r.mix;
   const t = catalog.find((x) => x.id === r.feedTypeId);
   // A feed the catalog no longer lists stays as the row had it, rather than vanishing on save.

@@ -19,6 +19,12 @@ export type FeedRow = {
   feedTypeId: string;
   /** The feed types the row came with: the mix behind "__keep", and the label of an id the catalog no longer lists. */
   mix: FeedingFeedType[];
+  /**
+   * No feed type of its own: it shows the pond's previous feed and is saved without
+   * one, so it keeps following that feed (a change reported later included) until
+   * someone picks a feed on it.
+   */
+  inherited: boolean;
   /** Catalog entry id, "" for none, "__keep" to keep existing additives unchanged. */
   additive: string;
   /** Dose for the chosen additive, in its own unit; blank uses the cycle's last dose. */
@@ -46,6 +52,7 @@ export function rowFromFeeding(f: Feeding, locked: boolean, fallback: FeedingFee
     kg: String(Math.round(num(f.amount_kg) * 10) / 10),
     minutes: f.duration_min !== null && f.duration_min !== undefined ? String(f.duration_min) : "",
     ...typeChoice(f.feed_types.length ? f.feed_types : fallback),
+    inherited: f.feed_types.length === 0,
     additive: f.additives.length === 1 && f.additives[0].product_id !== null ? f.additives[0].product_id : f.additives.length ? "__keep" : "",
     dose: f.additives.length === 1 ? String(num(f.additives[0].dose_per_kg)) : "",
     locked,
@@ -64,6 +71,7 @@ export function blankRow(time: string, types: FeedingFeedType[], additive = ""):
     kg: "",
     minutes: "",
     ...typeChoice(types),
+    inherited: true,
     additive,
     dose: "",
     locked: false,
@@ -381,7 +389,7 @@ export function FeedEditor({
           </div>
           <div className="grid grid-cols-[minmax(0,1.25fr)_minmax(0,1fr)_64px] gap-2">
             <Mini label="Feed type" id={`${r.key}-type`}>
-              <select id={`${r.key}-type`} disabled={r.locked} value={r.feedTypeId} onChange={(e) => update(r.key, { feedTypeId: e.target.value })} className="input-xs font-sans">
+              <select id={`${r.key}-type`} disabled={r.locked} value={r.feedTypeId} onChange={(e) => update(r.key, { feedTypeId: e.target.value, inherited: false })} className="input-xs font-sans">
                 <option value="">None</option>
                 {r.mix.length > 1 ? <option value="__keep">{feedTypeLabel(r.mix)}</option> : null}
                 {r.feedTypeId && r.feedTypeId !== "__keep" && !feeds.some((t) => t.id === r.feedTypeId) ? (
@@ -441,7 +449,7 @@ export function FeedEditor({
           // A new feed continues the one above it, a mix included; the first one starts from the previous feed.
           const last = rows.at(-1);
           const next = blankRow("", defaultTypes, defaultAdditive);
-          setRows((rs) => [...rs, last ? { ...next, feedTypeId: last.feedTypeId, mix: last.mix } : next]);
+          setRows((rs) => [...rs, last ? { ...next, feedTypeId: last.feedTypeId, mix: last.mix, inherited: last.inherited } : next]);
         }}
         className="flex items-center justify-center gap-1.5 rounded-[10px] border border-dashed border-line-dash p-2.5 text-xs font-semibold text-accent"
       >
