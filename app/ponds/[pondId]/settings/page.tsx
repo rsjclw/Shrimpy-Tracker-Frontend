@@ -15,11 +15,14 @@ import {
   cycleEqual,
   cycleErrors,
   type CycleDraft,
+  draftArea,
+  EMPTY_GENERAL,
   generalEqual,
   generalErrors,
   generalFromPond,
   type GeneralDraft,
   num,
+  sizeBody,
 } from "@/components/pond-settings/types";
 import { Button } from "@/components/ui/Button";
 import { Banner, ConfirmStrip, Loading } from "@/components/ui/Field";
@@ -53,8 +56,8 @@ export default function PondSettingsPage() {
   const [feedTypes, setFeedTypes] = useState<Product[]>([]);
   const [templates, setTemplates] = useState<BlindFeedingTemplate[]>([]);
 
-  const [savedGeneral, setSavedGeneral] = useState<GeneralDraft>({ name: "", area: "", firstFeed: "06:00" });
-  const [draftGeneral, setDraftGeneral] = useState<GeneralDraft>({ name: "", area: "", firstFeed: "06:00" });
+  const [savedGeneral, setSavedGeneral] = useState<GeneralDraft>(EMPTY_GENERAL);
+  const [draftGeneral, setDraftGeneral] = useState<GeneralDraft>(EMPTY_GENERAL);
   const [savedCycleDraft, setSavedCycleDraft] = useState<CycleDraft | null>(null);
   const [draftCycle, setDraftCycle] = useState<CycleDraft | null>(null);
   const [usedDefaults, setUsedDefaults] = useState(false);
@@ -187,7 +190,7 @@ export default function PondSettingsPage() {
       if (generalDirty) {
         await api.updatePond(pond!.id, {
           name: draftGeneral.name.trim(),
-          area_m2: num(draftGeneral.area),
+          ...sizeBody(draftGeneral),
           default_feed_time: `${draftGeneral.firstFeed}:00`,
         });
       }
@@ -289,7 +292,7 @@ export default function PondSettingsPage() {
         <TargetsSection
           cycleName={cycleLabel(activeCycle)}
           draft={draftCycle}
-          areaM2={num(draftGeneral.area)}
+          areaM2={draftArea(draftGeneral)}
           open={open.targets}
           onToggle={() => toggle("targets")}
           onChange={setDraftCycle}

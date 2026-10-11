@@ -2,27 +2,56 @@
 // components so the page and its sections can share the same shapes without
 // import cycles.
 
-import type { Cycle, Pond, PredictionConfig } from "@/lib/api";
+import type { Cycle, Pond, PondSize, PredictionConfig } from "@/lib/api";
 import { DEFAULT_PREDICTION_CONFIG, normalizeConfig } from "@/lib/cycles";
 import { daysBetween, docFor, hhmm, valid24 } from "@/lib/dates";
 import { has, num } from "@/lib/num";
 
-export type GeneralDraft = { name: string; area: string; firstFeed: string };
+/** `savedArea` is the area on record, kept for a pond that has no width and length yet. */
+export type GeneralDraft = { name: string; width: string; length: string; savedArea: string; firstFeed: string };
+
+export const EMPTY_GENERAL: GeneralDraft = { name: "", width: "", length: "", savedArea: "", firstFeed: "06:00" };
+
+const decimalText = (v: string | null) => (v ? String(Number(v)) : "");
 
 export function generalFromPond(pond: Pond): GeneralDraft {
-  return { name: pond.name, area: pond.area_m2 ? String(Number(pond.area_m2)) : "", firstFeed: hhmm(pond.default_feed_time) || "06:00" };
+  return {
+    name: pond.name,
+    width: decimalText(pond.width_m),
+    length: decimalText(pond.length_m),
+    savedArea: decimalText(pond.area_m2),
+    firstFeed: hhmm(pond.default_feed_time) || "06:00",
+  };
+}
+
+/** True once either size field has something in it; from then on both are needed. */
+export function hasSize(g: GeneralDraft): boolean {
+  return !!(g.width.trim() || g.length.trim());
+}
+
+/** The area this draft would save: width × length, or the area on record for an unmeasured pond. */
+export function draftArea(g: GeneralDraft): number {
+  return hasSize(g) ? num(g.width) * num(g.length) : num(g.savedArea);
+}
+
+export function sizeBody(g: GeneralDraft): PondSize {
+  return hasSize(g) ? { width_m: num(g.width), length_m: num(g.length) } : { area_m2: num(g.savedArea) };
 }
 
 export function generalErrors(g: GeneralDraft): string[] {
   const errors: string[] = [];
   if (!g.name.trim()) errors.push("Pond name is empty");
-  if (!(num(g.area) > 0)) errors.push("Area must be more than 0");
+  if (hasSize(g)) {
+    if (!(num(g.width) > 0 && num(g.length) > 0)) errors.push("Enter both width and length, each more than 0");
+  } else if (!(num(g.savedArea) > 0)) {
+    errors.push("Enter the pond's width and length");
+  }
   if (!valid24(g.firstFeed)) errors.push("First feeding must be a 24-hour time like 06:00");
   return errors;
 }
 
 export function generalEqual(a: GeneralDraft, b: GeneralDraft): boolean {
-  return a.name === b.name && a.area === b.area && a.firstFeed === b.firstFeed;
+  return a.name === b.name && a.width === b.width && a.length === b.length && a.firstFeed === b.firstFeed;
 }
 
 let rowKeySeq = 0;

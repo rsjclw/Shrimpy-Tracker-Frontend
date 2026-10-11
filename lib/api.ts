@@ -87,10 +87,15 @@ export type Pond = {
   grid_id: string;
   name: string;
   area_m2: string | null;
+  /** Metres, west to east and north to south. When both are set, area_m2 is their product. */
+  width_m: string | null;
+  length_m: string | null;
   default_feed_time: string | null;
   /** The warehouse this pond draws from; null means it moves no stock. */
   warehouse_id: string | null;
 };
+/** Width and length (the API sets the area from them), or just an area for a pond nobody has measured. */
+export type PondSize = { width_m: number; length_m: number } | { area_m2: number };
 export type PredictionConfig = {
   cycle: {
     preparation_day: number;
@@ -712,7 +717,7 @@ export const api = {
     request<EnvironmentRefresh>(`/grids/${gridId}/environment/refresh`, { method: "POST" }),
   listGridPonds: (gridId: string) => request<Pond[]>(`/grids/${gridId}/ponds`),
 
-  updatePond: (id: string, b: { name: string; area_m2?: number; default_feed_time?: string }) =>
+  updatePond: (id: string, b: { name: string; default_feed_time?: string } & PondSize) =>
     request<Pond>(`/ponds/${id}`, { method: "PUT", body: JSON.stringify(b) }),
   deletePond: (id: string) => request<void>(`/ponds/${id}`, { method: "DELETE" }),
 
@@ -720,7 +725,7 @@ export const api = {
     request<Pond[]>(
       `/ponds${gridId ? `?grid_id=${gridId}` : farmId ? `?farm_id=${farmId}` : ""}`,
     ),
-  createPond: (b: { grid_id: string; name: string; area_m2?: number; default_feed_time?: string }) =>
+  createPond: (b: { grid_id: string; name: string; default_feed_time?: string } & PondSize) =>
     request<Pond>("/ponds", { method: "POST", body: JSON.stringify(b) }),
   getPond: (id: string) => request<Pond>(`/ponds/${id}`),
   listPondCycles: (pondId: string) => request<Cycle[]>(`/ponds/${pondId}/cycles`),
