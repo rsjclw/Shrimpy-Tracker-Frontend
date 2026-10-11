@@ -82,12 +82,7 @@ export function FeedSchedule({
    * feed was changed would show that change on the 06:00 feed too.
    */
   const { fedTypes, defaultTypes } = useMemo(() => {
-    const last = prevFeedDay ? sortFeedings(prevFeedDay.feedings).at(-1) : null;
-    let running: FeedingFeedType[] = last
-      ? last.feed_types.length
-        ? last.feed_types
-        : prevFeedDay!.default_feed_types
-      : day.default_feed_types;
+    let running: FeedingFeedType[] = prevFeedDay ? lastFed(prevFeedDay) : day.default_feed_types;
     const fed = new Map<string, FeedingFeedType[]>();
     for (const f of sortFeedings(day.feedings)) {
       if (f.feed_types.length) running = f.feed_types;
@@ -242,7 +237,11 @@ export function FeedSchedule({
           defaultAdditive={defaultAdditive}
           sessionTimes={sessionTimesFor(pond.default_feed_time)}
           prevTotal={prevFeedDay ? { label: `${relLabel(prevFeedDay)} ${fmtNum(prevFeedDay.feedings.reduce((t, f) => t + num(f.amount_kg), 0), 1)} kg`, rows: copiedRows } : null}
-          prevFi={prevFi ? { label: `${relLabel(prevFi)} ${num(prevFi.metrics.feeding_index).toFixed(3)}`, value: num(prevFi.metrics.feeding_index).toFixed(3) } : null}
+          prevFi={
+            prevFi
+              ? { label: `${relLabel(prevFi)} ${num(prevFi.metrics.feeding_index).toFixed(3)}`, value: num(prevFi.metrics.feeding_index).toFixed(3), types: lastFed(prevFi) }
+              : null
+          }
           defaultRatios={ratiosDefault}
           maxFi={Number.isFinite(maxFi) ? maxFi : null}
           doses={doses}
@@ -319,6 +318,12 @@ function FeedRowView({
       ) : null}
     </div>
   );
+}
+
+/** What a day's last feeding was fed: its own feed type, or (none of its own) the latest before it. */
+function lastFed(d: DayView): FeedingFeedType[] {
+  const last = sortFeedings(d.feedings).at(-1);
+  return last?.feed_types.length ? last.feed_types : d.default_feed_types;
 }
 
 // ---- payload helpers ----

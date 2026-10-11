@@ -114,7 +114,8 @@ export function FeedEditor({
   sessionTimes: string[];
   /** The last day that had feeds, labelled with its total; picking it copies that day's rows. */
   prevTotal: { label: string; rows: () => FeedRow[] } | null;
-  prevFi: { label: string; value: string } | null;
+  /** That day's feeding index, and what its last feeding was fed: picking it puts that feed on every feed it rebuilds. */
+  prevFi: { label: string; value: string; types: FeedingFeedType[] } | null;
   defaultRatios: string[];
   maxFi: number | null;
   /** Dose each entry is currently on in this cycle (catalog id -> amount), for pre-filling. */
@@ -169,8 +170,12 @@ export function FeedEditor({
     return { ...cur, kg, fi: Number.isFinite(fi) ? fi.toFixed(3) : "" };
   };
 
-  /** Rebuild unlocked rows from the daily total and per-feed ratios; last feed takes the rounding remainder. */
-  function applyDaily(next: FiState) {
+  /**
+   * Rebuild unlocked rows from the daily total and per-feed ratios; last feed takes the
+   * rounding remainder. With `types`, every rebuilt row is put on that feed as a feed
+   * nobody picked, so it is saved following the previous feed.
+   */
+  function applyDaily(next: FiState, types?: FeedingFeedType[]) {
     setFiState(next);
     const daily = Math.round(num(next.kg) * 10) / 10;
     const ratios = next.ratios.map((r) => num(r) || 0);
@@ -184,7 +189,8 @@ export function FeedEditor({
         let kg = i === ratios.length - 1 ? daily - used : Math.round(daily * (r / 100) * 10) / 10;
         kg = Math.max(0, Math.round(kg * 10) / 10);
         used += kg;
-        return { ...base, time: base.time || sessionTimes[i] || "", kg: String(kg) };
+        const row = { ...base, time: base.time || sessionTimes[i] || "", kg: String(kg) };
+        return types ? { ...row, ...typeChoice(types), inherited: true } : row;
       });
       return [...current.filter((r) => r.locked), ...rebuilt];
     });
@@ -268,7 +274,7 @@ export function FeedEditor({
               className={bigInput}
             />
             {prevFi ? (
-              <button type="button" onClick={() => applyDaily(byFi(fiState, prevFi.value))} aria-label="Use previous feeding index" className={chip}>
+              <button type="button" onClick={() => applyDaily(byFi(fiState, prevFi.value), prevFi.types)} aria-label="Use previous feeding index" className={chip}>
                 {prevFi.label} ↺
               </button>
             ) : (
