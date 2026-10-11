@@ -92,17 +92,10 @@ export function FeedSchedule({
   }, [day.feedings, day.default_feed_types, prevFeedDay]);
 
   /**
-   * The additive the pond was last given, so a new day does not start by picking
-   * it again. Only when the last feeding had exactly one: two or more is a mix
-   * this cannot represent on a single row, and guessing one of them would be wrong.
+   * The previous day's additives, feed by feed. Each feed has its own (the morning
+   * and the evening feed can differ), so a new feed i starts with feed i's.
    */
-  const defaultAdditive = useMemo(() => {
-    const last = prevFeedDay ? sortFeedings(prevFeedDay.feedings).at(-1) : null;
-    if (!last || last.additives.length !== 1) return "";
-    const id = last.additives[0].product_id;
-    // Pre-merge entries carry no id, and nothing can be selected from a bare name.
-    return id && products.some((p) => p.id === id) ? id : "";
-  }, [prevFeedDay, products]);
+  const prevAdditives = useMemo(() => (prevFeedDay ? sortFeedings(prevFeedDay.feedings).map((f) => f.additives) : []), [prevFeedDay]);
 
   function begin(rows: FeedRow[], mode: "plain" | "fi" | "predict" = "plain") {
     setError(null);
@@ -216,7 +209,7 @@ export function FeedSchedule({
               {perms.canAdd ? (
                 <div className="grid grid-cols-2 gap-1.5">
                   <QuickButton onClick={() => begin([], "fi")}>Daily feed</QuickButton>
-                  <QuickButton onClick={() => begin([blankRow(hhmm(pond.default_feed_time) || "06:00", defaultTypes, defaultAdditive)])}>
+                  <QuickButton onClick={() => begin([blankRow(hhmm(pond.default_feed_time) || "06:00", defaultTypes, prevAdditives[0] ?? [])])}>
                     Add manually
                   </QuickButton>
                 </div>
@@ -234,12 +227,12 @@ export function FeedSchedule({
           initialMode={editing.mode}
           products={products}
           defaultTypes={defaultTypes}
-          defaultAdditive={defaultAdditive}
+          prevAdditives={prevAdditives}
           sessionTimes={sessionTimesFor(pond.default_feed_time)}
           prevTotal={prevFeedDay ? { label: `${relLabel(prevFeedDay)} ${fmtNum(prevFeedDay.feedings.reduce((t, f) => t + num(f.amount_kg), 0), 1)} kg`, rows: copiedRows } : null}
           prevFi={
             prevFi
-              ? { label: `${relLabel(prevFi)} ${num(prevFi.metrics.feeding_index).toFixed(3)}`, value: num(prevFi.metrics.feeding_index).toFixed(3), types: lastFed(prevFi) }
+              ? { label: `${relLabel(prevFi)} ${num(prevFi.metrics.feeding_index).toFixed(3)}`, value: num(prevFi.metrics.feeding_index).toFixed(3), types: lastFed(prevFi), additives: sortFeedings(prevFi.feedings).map((f) => f.additives) }
               : null
           }
           defaultRatios={ratiosDefault}
@@ -340,7 +333,7 @@ export function feedTypesFor(r: FeedRow, catalog: Product[]): FeedingFeedType[] 
 
 export function additivesFor(r: FeedRow): FeedingAdditiveIn[] {
   if (r.additive === "__keep") {
-    return (r.original?.additives ?? []).map((a) =>
+    return r.adds.map((a) =>
       a.product_id !== null ? { product_id: a.product_id, dose_per_kg: num(a.dose_per_kg) } : { name: a.name, dose_per_kg: num(a.dose_per_kg) },
     );
   }

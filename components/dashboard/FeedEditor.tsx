@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 
-import type { Cycle, DayView, Feeding, FeedingFeedType, Product } from "@/lib/api";
+import type { Cycle, DayView, Feeding, FeedingAdditive, FeedingFeedType, Product } from "@/lib/api";
 import { fmt24, hhmm } from "@/lib/dates";
 import { decimalInput, fmtInt, intInput, num } from "@/lib/num";
 import { feedTypeLabel, type DayKind } from "./model";
@@ -25,13 +25,24 @@ export type FeedRow = {
    * someone picks a feed on it.
    */
   inherited: boolean;
-  /** Catalog entry id, "" for none, "__keep" to keep existing additives unchanged. */
+  /** Catalog entry id, "" for none, "__keep" for the additives in `adds`. */
   additive: string;
+  /** The additives the row came with: what "__keep" saves, and the label of an id the list does not offer. */
+  adds: FeedingAdditive[];
   /** Dose for the chosen additive, in its own unit; blank uses the cycle's last dose. */
   dose: string;
   /** Existing feed an operator may not change (the backend only lets them add). */
   locked: boolean;
 };
+
+/**
+ * How a row shows a set of additives: one by its id and dose, two or more (or one
+ * logged before the catalogs merged, with no id) as "__keep".
+ */
+function additiveChoice(adds: FeedingAdditive[]): Pick<FeedRow, "additive" | "dose" | "adds"> {
+  if (adds.length === 1 && adds[0].product_id !== null) return { additive: adds[0].product_id, dose: String(num(adds[0].dose_per_kg)), adds };
+  return { additive: adds.length ? "__keep" : "", dose: "", adds };
+}
 
 /** How a row shows a set of feed types: one feed by its id, a mix as "__keep". */
 function typeChoice(types: FeedingFeedType[]): Pick<FeedRow, "feedTypeId" | "mix"> {
@@ -53,18 +64,17 @@ export function rowFromFeeding(f: Feeding, locked: boolean, fallback: FeedingFee
     minutes: f.duration_min !== null && f.duration_min !== undefined ? String(f.duration_min) : "",
     ...typeChoice(f.feed_types.length ? f.feed_types : fallback),
     inherited: f.feed_types.length === 0,
-    additive: f.additives.length === 1 && f.additives[0].product_id !== null ? f.additives[0].product_id : f.additives.length ? "__keep" : "",
-    dose: f.additives.length === 1 ? String(num(f.additives[0].dose_per_kg)) : "",
+    ...additiveChoice(f.additives),
     locked,
   };
 }
 
 /**
- * A fresh row, seeded from what the pond was last fed: the feed (a mix included),
- * and the additive that went with it. The dose is deliberately left blank - the
- * server fills it from the last dose in this cycle, then the last anywhere on the farm.
+ * A fresh row, seeded from what the pond was last fed (a mix included) and from the
+ * additives, with their doses, of the same feed the day before: each feed of the day
+ * has its own, so feed 1 takes feed 1's.
  */
-export function blankRow(time: string, types: FeedingFeedType[], additive = ""): FeedRow {
+export function blankRow(time: string, types: FeedingFeedType[], adds: FeedingAdditive[] = []): FeedRow {
   return {
     key: crypto.randomUUID(),
     time,
@@ -72,8 +82,7 @@ export function blankRow(time: string, types: FeedingFeedType[], additive = ""):
     minutes: "",
     ...typeChoice(types),
     inherited: true,
-    additive,
-    dose: "",
+    ...additiveChoice(adds),
     locked: false,
   };
 }
@@ -90,7 +99,7 @@ export function FeedEditor({
   initialMode,
   products,
   defaultTypes,
-  defaultAdditive,
+  prevAdditives,
   sessionTimes,
   prevTotal,
   prevFi,
@@ -114,14 +123,18 @@ export function FeedEditor({
   sessionTimes: string[];
   /** The last day that had feeds, labelled with its total; picking it copies that day's rows. */
   prevTotal: { label: string; rows: () => FeedRow[] } | null;
-  /** That day's feeding index, and what its last feeding was fed: picking it puts that feed on every feed it rebuilds. */
-  prevFi: { label: string; value: string; types: FeedingFeedType[] } | null;
+  /**
+   * That day's feeding index, what its last feeding was fed, and each of its feeds'
+   * additives in order. Picking it puts that feed on every feed it rebuilds, and feed
+   * i's additives on feed i.
+   */
+  prevFi: { label: string; value: string; types: FeedingFeedType[]; additives: FeedingAdditive[][] } | null;
   defaultRatios: string[];
   maxFi: number | null;
   /** Dose each entry is currently on in this cycle (catalog id -> amount), for pre-filling. */
   doses: Record<string, string>;
-  /** Additive the pond was last fed, seeded onto new rows. */
-  defaultAdditive: string;
+  /** The previous day's additives, feed by feed: a new feed i starts with feed i's. */
+  prevAdditives: FeedingAdditive[][];
   canManage: boolean;
   saving: boolean;
   onCancel: () => void;
@@ -172,10 +185,11 @@ export function FeedEditor({
 
   /**
    * Rebuild unlocked rows from the daily total and per-feed ratios; last feed takes the
-   * rounding remainder. With `types`, every rebuilt row is put on that feed as a feed
-   * nobody picked, so it is saved following the previous feed.
+   * rounding remainder. With `prev`, every rebuilt row is put on its feed as a feed
+   * nobody picked (so it is saved following the previous feed), and row i gets that
+   * day's feed i additives.
    */
-  function applyDaily(next: FiState, types?: FeedingFeedType[]) {
+  function applyDaily(next: FiState, prev?: { types: FeedingFeedType[]; additives: FeedingAdditive[][] }) {
     setFiState(next);
     const daily = Math.round(num(next.kg) * 10) / 10;
     const ratios = next.ratios.map((r) => num(r) || 0);
@@ -185,12 +199,12 @@ export function FeedEditor({
       const editable = current.filter((r) => !r.locked);
       let used = 0;
       const rebuilt = ratios.map((r, i) => {
-        const base = editable[i] ?? blankRow(sessionTimes[i] ?? "", defaultTypes, defaultAdditive);
+        const base = editable[i] ?? blankRow(sessionTimes[i] ?? "", defaultTypes, prevAdditives[locked.length + i] ?? []);
         let kg = i === ratios.length - 1 ? daily - used : Math.round(daily * (r / 100) * 10) / 10;
         kg = Math.max(0, Math.round(kg * 10) / 10);
         used += kg;
         const row = { ...base, time: base.time || sessionTimes[i] || "", kg: String(kg) };
-        return types ? { ...row, ...typeChoice(types), inherited: true } : row;
+        return prev ? { ...row, ...typeChoice(prev.types), inherited: true, ...additiveChoice(prev.additives[locked.length + i] ?? []) } : row;
       });
       return [...current.filter((r) => r.locked), ...rebuilt];
     });
@@ -274,7 +288,7 @@ export function FeedEditor({
               className={bigInput}
             />
             {prevFi ? (
-              <button type="button" onClick={() => applyDaily(byFi(fiState, prevFi.value), prevFi.types)} aria-label="Use previous feeding index" className={chip}>
+              <button type="button" onClick={() => applyDaily(byFi(fiState, prevFi.value), prevFi)} aria-label="Use previous feeding index" className={chip}>
                 {prevFi.label} ↺
               </button>
             ) : (
@@ -422,7 +436,10 @@ export function FeedEditor({
                 className="input-xs font-sans"
               >
                 <option value="">None</option>
-                {r.additive === "__keep" && r.original ? <option value="__keep">{r.original.additives.map((a) => a.name).join(", ")}</option> : null}
+                {r.additive === "__keep" ? <option value="__keep">{r.adds.map((a) => a.name).join(", ")}</option> : null}
+                {r.additive && r.additive !== "__keep" && !dosables.some((a) => a.id === r.additive) ? (
+                  <option value={r.additive}>{r.adds.map((a) => a.name).join(", ")}</option>
+                ) : null}
                 {dosables.map((a) => (
                   <option key={a.id} value={a.id}>
                     {a.name}
@@ -452,9 +469,10 @@ export function FeedEditor({
       <button
         type="button"
         onClick={() => {
-          // A new feed continues the one above it, a mix included; the first one starts from the previous feed.
+          // A new feed continues the feed type of the one above it, a mix included, and takes the
+          // additives of the same feed the day before; the first starts from the previous feed.
           const last = rows.at(-1);
-          const next = blankRow("", defaultTypes, defaultAdditive);
+          const next = blankRow("", defaultTypes, prevAdditives[rows.length] ?? []);
           setRows((rs) => [...rs, last ? { ...next, feedTypeId: last.feedTypeId, mix: last.mix, inherited: last.inherited } : next]);
         }}
         className="flex items-center justify-center gap-1.5 rounded-[10px] border border-dashed border-line-dash p-2.5 text-xs font-semibold text-accent"
