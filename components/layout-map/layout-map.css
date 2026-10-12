@@ -1,0 +1,141 @@
+/* The layout drawing. Everything is in screen pixels; the camera turns metres into pixels. */
+.lm {
+  --lm-water: #0e2227;
+  --lm-water-edge: #1d4049;
+  --lm-accent: #2dd4bf;
+  --lm-accent-hover: #7ff4dc;
+  --lm-sky: #38bdf8;
+  --lm-moon: #f5e6b8;
+  --lm-raised: #16211e;
+  --lm-card: #121a18;
+}
+.lm-wrap {
+  position: relative;
+  height: clamp(380px, 64vh, 760px);
+  border-radius: 10px;
+  background: #0e1614;
+  border: 1px solid #1a2421;
+  overflow: hidden;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+}
+.lm-wrap.editing { border-color: rgba(45, 212, 191, 0.5); }
+.lm-svg { display: block; width: 100%; height: 100%; cursor: grab; }
+.lm-svg.grabbing { cursor: grabbing; }
+
+.lm .dotc { fill: #1a2421; }
+.lm .mk-w { fill: var(--lm-sky); }
+.lm .mk-a { fill: var(--lm-accent); }
+.lm .mk-p { fill: var(--lm-moon); }
+.lm .node { cursor: pointer; }
+.lm .node:focus { outline: none; }
+.lm .node:focus-visible .focus { stroke: var(--lm-accent-hover); stroke-width: 2.5; }
+.lm .pond-body,
+.lm .water-body { fill: var(--lm-water); stroke: var(--lm-water-edge); stroke-width: 1.5; }
+/* Not drawn yet: shown at a suggested spot, dashed. */
+.lm .suggested .pond-body,
+.lm .suggested .water-body { stroke-dasharray: 6 4; fill-opacity: 0.55; }
+.lm .is-sel .pond-body,
+.lm .is-sel .water-body { stroke: var(--lm-accent); stroke-width: 2.5; }
+.lm .lifted .pond-body,
+.lm .lifted .water-body { stroke: var(--lm-accent-hover); stroke-width: 3; fill: rgba(45, 212, 191, 0.1); }
+.lm .t-name { font-family: var(--font-grotesk), system-ui, sans-serif; font-weight: 600; font-size: 14px; fill: #f4faf8; }
+.lm .t-sub { font-family: var(--font-plex-mono), monospace; font-size: 11.5px; font-weight: 400; fill: #8a9a95; }
+.lm .t-far { font-family: var(--font-plex-mono), monospace; font-size: 12px; font-weight: 600; fill: #f4faf8; }
+.lm .t-badge { font-family: var(--font-plex-mono), monospace; font-size: 10.5px; fill: #8a9a95; }
+.lm .t-code { font-family: var(--font-plex-mono), monospace; font-size: 12px; font-weight: 500; fill: #c9d6d2; }
+.lm .t-strip { font-family: var(--font-plex-mono), monospace; font-size: 11px; fill: #6b7c77; letter-spacing: 0.06em; text-transform: uppercase; }
+.lm .hit { fill: transparent; stroke: none; }
+.lm .ring { fill: none; stroke: var(--lm-water-edge); stroke-width: 1.2; }
+.lm .w-shaft { stroke: #9aaba6; stroke-width: 1.6; }
+.lm .w-wheel { fill: var(--lm-card); stroke: #c9d6d2; stroke-width: 1.4; }
+.lm .w-motor { fill: #c9d6d2; }
+.lm .w-arrow { fill: none; stroke: var(--lm-accent); stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; }
+.lm .pump-body { fill: var(--lm-raised); stroke: var(--lm-sky); stroke-width: 1.5; }
+.lm .pump-tri { fill: var(--lm-sky); }
+.lm .blower-body { fill: var(--lm-raised); stroke: var(--lm-accent); stroke-width: 1.5; }
+.lm .blade { fill: var(--lm-accent); }
+.lm .power-body { fill: var(--lm-raised); stroke: var(--lm-moon); stroke-width: 1.5; }
+.lm .bolt { fill: var(--lm-moon); }
+.lm .gen-wave { fill: none; stroke: var(--lm-moon); stroke-width: 2; stroke-linecap: round; }
+/* A machine whose spot isn't recorded (a guess, or waiting to be placed) is faint. */
+.lm .guess > g,
+.lm .guess > text { opacity: 0.45; }
+.lm .guess .w-shaft { stroke-dasharray: 2 2; }
+.lm .st-ring { fill: none; stroke-width: 2.2; }
+.lm .st-broken { stroke: #f87171; }
+.lm .st-in_repair { stroke: #fbbf24; }
+.lm .st-retired { stroke: #4c5b56; }
+.lm .sel-ring { fill: none; stroke: var(--lm-accent); stroke-width: 2; stroke-dasharray: 3 3; }
+.lm .lift-ring { fill: rgba(45, 212, 191, 0.14); stroke: var(--lm-accent); stroke-width: 2; }
+.lm .rot-ring { fill: rgba(45, 212, 191, 0.06); stroke: var(--lm-accent); stroke-width: 1.5; stroke-dasharray: 4 4; }
+.lm .rot-line { stroke: var(--lm-accent); stroke-width: 1.5; }
+.lm .rot-label { font-family: var(--font-plex-mono), monospace; font-size: 14px; font-weight: 600; fill: var(--lm-accent-hover); }
+.lm .ln-water { stroke: var(--lm-sky); stroke-width: 2.2; fill: none; }
+.lm .ln-air { stroke: var(--lm-accent); stroke-width: 1.8; stroke-dasharray: 1 5; stroke-linecap: round; fill: none; }
+.lm .ln-power { stroke: var(--lm-moon); stroke-width: 1.6; stroke-dasharray: 6 5; fill: none; }
+.lm .scale-l { stroke: #6b7c77; stroke-width: 1.5; }
+.lm .scale-t,
+.lm .compass-n { fill: #6b7c77; font-family: var(--font-plex-mono), monospace; font-size: 12px; }
+.lm .compass-a { fill: #6b7c77; }
+.lm .dim { opacity: 0.16; }
+.lm .node,
+.lm .lines > g { transition: opacity 0.18s; }
+@media (prefers-reduced-motion: reduce) {
+  .lm .node,
+  .lm .lines > g { transition: none; }
+}
+
+/* Popups on the map: the paddlewheel editor and the details. */
+.lm-pop {
+  position: absolute;
+  z-index: 5;
+  width: 300px;
+  display: grid;
+  gap: 10px;
+  padding: 14px;
+  border-radius: 12px;
+  background: #0d1513;
+  border: 1px solid rgba(45, 212, 191, 0.5);
+  box-shadow: 0 14px 36px rgba(0, 0, 0, 0.5);
+}
+.lm-pop:focus,
+.lm-info:focus { outline: none; }
+.lm-info {
+  position: absolute;
+  z-index: 6;
+  width: 360px;
+  overflow: auto;
+  padding: 16px;
+  display: grid;
+  gap: 18px;
+  align-content: start;
+  border-radius: 14px;
+  background: var(--lm-card);
+  border: 1px solid #26332f;
+  box-shadow: 0 18px 44px rgba(0, 0, 0, 0.55);
+  overscroll-behavior: contain;
+}
+/* On a phone the details are a sheet along the bottom of the screen, clear of the map's buttons. */
+.lm-info.sheet {
+  position: fixed;
+  left: 8px;
+  right: 8px;
+  bottom: calc(8px + env(safe-area-inset-bottom, 0px));
+  top: auto !important;
+  width: auto !important;
+  max-height: 62vh !important;
+  z-index: 40;
+}
+/* The title row (with ✕) stays at the top while a long history scrolls under it. */
+.lm-info .p-head {
+  position: sticky;
+  top: -16px;
+  z-index: 1;
+  margin: -16px -16px 0;
+  padding: 16px 16px 10px;
+  background: var(--lm-card);
+  border-bottom: 1px solid #1a2421;
+}

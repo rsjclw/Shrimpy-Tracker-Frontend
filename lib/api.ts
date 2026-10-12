@@ -93,6 +93,91 @@ export type Pond = {
   default_feed_time: string | null;
   /** The warehouse this pond draws from; null means it moves no stock. */
   warehouse_id: string | null;
+  /** Its middle on the grid's layout drawing, metres east and south of the origin; null when not drawn yet. */
+  x_m?: string | null;
+  y_m?: string | null;
+  /** Turned clockwise on the drawing, 0-359. */
+  rotation?: number;
+};
+export type EquipmentKind = "reservoir" | "bore_well" | "paddlewheel" | "pump" | "generator" | "pln_meter" | "blower";
+export type EquipmentStatus = "working" | "broken" | "in_repair" | "retired";
+export type EquipmentEventKind =
+  | "broken"
+  | "sent_for_repair"
+  | "repaired"
+  | "serviced"
+  | "part_replaced"
+  | "disinfected"
+  | "note"
+  | "retired";
+/**
+ * Where a machine sits, from a date. Inside a pond or reservoir, x/y are metres from its
+ * own west and north sides and bearing is from its own north side. On the grid (no
+ * pond, reservoir or warehouse), x/y are its middle on the layout drawing and bearing
+ * is how far it is turned.
+ */
+export type EquipmentPlacement = {
+  id: string;
+  pond_id: string | null;
+  in_equipment_id: string | null;
+  warehouse_id: string | null;
+  x_m: string | null;
+  y_m: string | null;
+  bearing: number | null;
+  from_date: string;
+  to_date: string | null;
+  note: string | null;
+};
+export type EquipmentPlacementInput = {
+  pond_id?: string | null;
+  in_equipment_id?: string | null;
+  warehouse_id?: string | null;
+  x_m?: number | null;
+  y_m?: number | null;
+  bearing?: number | null;
+  from_date: string;
+  to_date?: string | null;
+  note?: string | null;
+};
+/** What a machine moves water, air or power from (nothing, for a meter) and to. */
+export type EquipmentLink = {
+  id: string;
+  from_pond_id: string | null;
+  from_equipment_id: string | null;
+  to_pond_id: string | null;
+  to_equipment_id: string | null;
+  from_date: string | null;
+  to_date: string | null;
+  note: string | null;
+};
+export type EquipmentEvent = {
+  id: string;
+  date: string;
+  kind: EquipmentEventKind;
+  note: string | null;
+  cost: string | null;
+  run_hours: string | null;
+  created_by: string | null;
+  created_at: string;
+};
+export type Equipment = {
+  id: string;
+  grid_id: string;
+  kind: EquipmentKind;
+  code: string;
+  name: string | null;
+  /** Per kind; see DOCS "Specs by kind". */
+  specs: Record<string, unknown>;
+  notes: string | null;
+  status: EquipmentStatus;
+  placement: EquipmentPlacement | null;
+  links: EquipmentLink[];
+  last_event?: EquipmentEvent | null;
+};
+export type EquipmentDetail = Equipment & {
+  placements: EquipmentPlacement[];
+  all_links: EquipmentLink[];
+  events: EquipmentEvent[];
 };
 /** Width and length (the API sets the area from them), or just an area for a pond nobody has measured. */
 export type PondSize = { width_m: number; length_m: number } | { area_m2: number };
@@ -728,6 +813,22 @@ export const api = {
   createPond: (b: { grid_id: string; name: string; default_feed_time?: string } & PondSize) =>
     request<Pond>("/ponds", { method: "POST", body: JSON.stringify(b) }),
   getPond: (id: string) => request<Pond>(`/ponds/${id}`),
+  /** Move or turn a pond on its grid's layout drawing; no x/y takes it off the drawing. */
+  setPondLayout: (id: string, b: { x_m: number | null; y_m: number | null; rotation: number }) =>
+    request<Pond>(`/ponds/${id}/layout`, { method: "PUT", body: JSON.stringify(b) }),
+
+  listEquipment: (gridId: string) => request<Equipment[]>(`/equipment?grid_id=${gridId}`),
+  getEquipment: (id: string) => request<EquipmentDetail>(`/equipment/${id}`),
+  /** A new spot. Without to_date it is where the machine is now: the current spot ends where this one starts. */
+  addEquipmentPlacement: (id: string, b: EquipmentPlacementInput) =>
+    request<EquipmentPlacement>(`/equipment/${id}/placements`, { method: "POST", body: JSON.stringify(b) }),
+  /** Correct a recorded spot in place, adding no history. */
+  fixEquipmentPlacement: (placementId: string, b: EquipmentPlacementInput) =>
+    request<EquipmentPlacement>(`/equipment/placements/${placementId}`, { method: "PUT", body: JSON.stringify(b) }),
+  addEquipmentEvent: (
+    id: string,
+    b: { date: string; kind: EquipmentEventKind; note?: string | null; cost?: number | null; run_hours?: number | null },
+  ) => request<EquipmentEvent>(`/equipment/${id}/events`, { method: "POST", body: JSON.stringify(b) }),
   listPondCycles: (pondId: string) => request<Cycle[]>(`/ponds/${pondId}/cycles`),
 
   listCycles: (farmId?: string) =>

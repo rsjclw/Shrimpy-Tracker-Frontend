@@ -26,7 +26,8 @@ export type IconName =
   | "logout"
   | "user"
   | "copy"
-  | "box";
+  | "box"
+  | "map";
 
 type Props = {
   name: IconName;
@@ -171,6 +172,13 @@ export function Icon({ name, size = 16, strokeWidth = 2, className, filled }: Pr
         <svg {...common}>
           <circle cx="12" cy="8" r="4" />
           <path d="M4.5 20a7.5 7.5 0 0 1 15 0" />
+        </svg>
+      );
+    case "map":
+      return (
+        <svg {...common}>
+          <path d="M9 4 3 6.5v13L9 17l6 2.5 6-2.5v-13L15 6.5 9 4Z" />
+          <path d="M9 4v13M15 6.5v13" />
         </svg>
       );
   }

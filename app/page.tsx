@@ -260,7 +260,8 @@ export default function Dashboard() {
         onAddPond={() => setAddingPond(true)}
       />
 
-      <div className="-mt-2 flex items-center gap-3">
+      {/* Wraps on narrow phones: the buttons drop under the stats instead of running off the screen. */}
+      <div className="-mt-2 flex flex-wrap items-center gap-x-3 gap-y-2">
         {data && grid ? (
           <>
             <Stat value={active.length - preparing} label="active" />
@@ -282,14 +283,24 @@ export default function Dashboard() {
             <span className="hidden min-[400px]:inline">Trends</span>
           </Link>
           {grid ? (
-            <Link
-              href={`/inventory?farm=${farm.id}&grid=${grid.id}`}
-              aria-label="Inventory"
-              className="inline-flex items-center gap-1.5 rounded-full border border-line-strong bg-ink-800 px-2.5 py-1.5 text-xs font-semibold text-tx-soft hover:text-tx-strong"
-            >
-              <Icon name="box" size={13} />
-              <span className="hidden min-[460px]:inline">Inventory</span>
-            </Link>
+            <>
+              <Link
+                href={`/layout?farm=${farm.id}&grid=${grid.id}`}
+                aria-label="Layout"
+                className="inline-flex items-center gap-1.5 rounded-full border border-line-strong bg-ink-800 px-2.5 py-1.5 text-xs font-semibold text-tx-soft hover:text-tx-strong"
+              >
+                <Icon name="map" size={13} />
+                <span className="hidden min-[520px]:inline">Layout</span>
+              </Link>
+              <Link
+                href={`/inventory?farm=${farm.id}&grid=${grid.id}`}
+                aria-label="Inventory"
+                className="inline-flex items-center gap-1.5 rounded-full border border-line-strong bg-ink-800 px-2.5 py-1.5 text-xs font-semibold text-tx-soft hover:text-tx-strong"
+              >
+                <Icon name="box" size={13} />
+                <span className="hidden min-[460px]:inline">Inventory</span>
+              </Link>
+            </>
           ) : null}
           <AccountMenu user={user} />
         </div>
