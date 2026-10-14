@@ -470,8 +470,27 @@ export type InventoryMovement = {
   delta: string;
   quantity_after: string;
   note: string | null;
+  /** A receive's delivery: pack_count packs of pack_unit, pack_size base units each. */
+  pack_unit: string | null;
+  pack_size: string | null;
+  pack_count: string | null;
+  /** Rupiah for the whole delivery, and per base unit. */
+  total_cost: string | null;
+  unit_cost: string | null;
+  supplier: string | null;
   created_by: string | null;
   created_at: string;
+};
+/** A movement as sent. A receive may come in packs (then `amount` is packs × size) with a cost. */
+export type MovementInput = {
+  kind: MovementKind;
+  amount?: number;
+  note?: string | null;
+  pack_unit?: string;
+  pack_count?: number;
+  pack_size?: number;
+  total_cost?: number;
+  supplier?: string;
 };
 
 export type Harvest = {
@@ -1071,7 +1090,7 @@ export const api = {
   updateInventoryItem: (id: string, b: Partial<InventoryItemInput>) =>
     request<InventoryItem>(`/inventory-items/${id}`, { method: "PUT", body: JSON.stringify(b) }),
   deleteInventoryItem: (id: string) => request<void>(`/inventory-items/${id}`, { method: "DELETE" }),
-  addInventoryMovement: (id: string, b: { kind: MovementKind; amount: number; note?: string | null }) =>
+  addInventoryMovement: (id: string, b: MovementInput) =>
     request<InventoryItem>(`/inventory-items/${id}/movements`, { method: "POST", body: JSON.stringify(b) }),
   listInventoryMovements: (id: string, limit = 10) =>
     request<InventoryMovement[]>(`/inventory-items/${id}/movements?limit=${limit}`),

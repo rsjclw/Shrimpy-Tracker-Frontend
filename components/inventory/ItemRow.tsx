@@ -4,8 +4,9 @@ import { useEffect, useState } from "react";
 
 import { Banner, ConfirmStrip } from "@/components/ui/Field";
 import { Icon } from "@/components/ui/Icon";
-import { api, type InventoryItem, type InventoryMovement, type MovementKind, type Product } from "@/lib/api";
-import { decimalInput, num, rupiah } from "@/lib/num";
+import { api, type InventoryItem, type InventoryMovement, type MovementInput, type MovementKind, type Product } from "@/lib/api";
+import { decimalInput, intInput, num, rupiah } from "@/lib/num";
+import { factorToBase, unitsFor } from "@/lib/products";
 import { ItemForm } from "./ItemForm";
 import { fmtQty, isLow, isNegative, timeAgo } from "./model";
 
@@ -41,6 +42,11 @@ export function ItemRow({
   const [mode, setMode] = useState<MovementKind | "edit" | "delete" | null>(null);
   const [amount, setAmount] = useState("");
   const [note, setNote] = useState("");
+  // A receive, as it came: in the base unit or in packs, and what it cost.
+  const [unit, setUnit] = useState(item.unit);
+  const [packSize, setPackSize] = useState("");
+  const [cost, setCost] = useState("");
+  const [supplier, setSupplier] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [history, setHistory] = useState<InventoryMovement[] | null>(null);
@@ -68,7 +74,17 @@ export function ItemRow({
     setMode(mode === m ? null : m);
     setAmount(m === "count" ? String(num(item.quantity)) : "");
     setNote("");
+    // Most deliveries come in the product's first pack (sacks of feed), else in the base unit.
+    pickUnit(m === "receive" && product?.units.length ? product.units[0].unit : item.unit);
+    setCost("");
+    setSupplier("");
     setError(null);
+  }
+
+  function pickUnit(u: string) {
+    setUnit(u);
+    const f = product ? factorToBase(product, u) : 1;
+    setPackSize(f !== null && f !== 1 ? String(f) : "");
   }
 
   async function run<T>(fn: () => Promise<T>, done: (v: T) => void) {
@@ -84,9 +100,23 @@ export function ItemRow({
     }
   }
 
-  const amt = num(amount);
+  const inPacks = mode === "receive" && unit !== item.unit;
+  const size = num(packSize);
+  // What the stock moves by, in the base unit: packs × their size for a delivery in packs.
+  const amt = inPacks ? num(amount) * size : num(amount);
   const amountOk = mode === "count" ? amt >= 0 : amt > 0;
   const after = mode === "receive" ? num(item.quantity) + amt : mode === "use" ? num(item.quantity) - amt : amt;
+  const paid = num(cost);
+
+  function body(): MovementInput {
+    const base: MovementInput = { kind: mode as MovementKind, note: note.trim() || null };
+    if (mode !== "receive") return { ...base, amount: amt };
+    const details = { ...(paid > 0 ? { total_cost: paid } : {}), ...(supplier.trim() ? { supplier: supplier.trim() } : {}) };
+    if (!inPacks) return { ...base, ...details, amount: amt };
+    const usual = product ? factorToBase(product, unit) : null;
+    // A size that differs from the usual is this delivery's bag, and becomes the new usual.
+    return { ...base, ...details, pack_unit: unit, pack_count: num(amount), ...(usual !== size ? { pack_size: size } : {}) };
+  }
 
   return (
     <div className={`rounded-[12px] border bg-ink-800 ${open ? "border-accent/60" : low ? "border-warn/40" : "border-line"}`}>
@@ -137,29 +167,71 @@ export function ItemRow({
 
           {mode === "receive" || mode === "use" || mode === "count" ? (
             <div className="flex flex-col gap-2 rounded-[10px] bg-ink-850 p-2.5">
-              <div className="grid grid-cols-[1fr_1.4fr] gap-2">
-                <label className="flex min-w-0 flex-col gap-1">
-                  <span className="field-label">{mode === "count" ? `Counted (${item.unit})` : `Amount (${item.unit})`}</span>
-                  <input autoFocus className="input-sm font-mono" inputMode="decimal" value={amount} onChange={(e) => setAmount(decimalInput(e.target.value, 3))} placeholder="0" />
-                </label>
-                <label className="flex min-w-0 flex-col gap-1">
-                  <span className="field-label">Note (optional)</span>
-                  <input className="input-sm" value={note} onChange={(e) => setNote(e.target.value)} placeholder={mode === "receive" ? "supplier, invoice…" : mode === "use" ? "pond, purpose…" : "monthly count"} />
-                </label>
-              </div>
+              {mode === "receive" ? (
+                <>
+                  <div className={`grid gap-2 ${inPacks ? "grid-cols-[1fr_1fr_1fr]" : "grid-cols-[1fr_1fr]"}`}>
+                    <label className="flex min-w-0 flex-col gap-1">
+                      <span className="field-label">Came in</span>
+                      <select className="input-sm" value={unit} onChange={(e) => pickUnit(e.target.value)}>
+                        {(product ? unitsFor(product) : [item.unit]).map((u) => (
+                          <option key={u} value={u}>
+                            {u}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <label className="flex min-w-0 flex-col gap-1">
+                      <span className="field-label">{inPacks ? `How many ${unit}` : `Amount (${item.unit})`}</span>
+                      <input autoFocus className="input-sm font-mono" inputMode="decimal" value={amount} onChange={(e) => setAmount(decimalInput(e.target.value, 3))} placeholder="0" />
+                    </label>
+                    {inPacks ? (
+                      <label className="flex min-w-0 flex-col gap-1">
+                        <span className="field-label">{`${item.unit} per ${unit}`}</span>
+                        <input className="input-sm font-mono" inputMode="decimal" value={packSize} onChange={(e) => setPackSize(decimalInput(e.target.value, 3))} placeholder="0" />
+                      </label>
+                    ) : null}
+                  </div>
+                  <div className="grid grid-cols-[1fr_1fr] gap-2">
+                    <label className="flex min-w-0 flex-col gap-1">
+                      <span className="field-label">Total paid (Rp, optional)</span>
+                      <input className="input-sm font-mono" inputMode="numeric" value={cost} onChange={(e) => setCost(intInput(e.target.value))} placeholder="0" />
+                    </label>
+                    <label className="flex min-w-0 flex-col gap-1">
+                      <span className="field-label">Supplier (optional)</span>
+                      <input className="input-sm" value={supplier} onChange={(e) => setSupplier(e.target.value)} placeholder="who sold it" />
+                    </label>
+                  </div>
+                  <label className="flex min-w-0 flex-col gap-1">
+                    <span className="field-label">Note (optional)</span>
+                    <input className="input-sm" value={note} onChange={(e) => setNote(e.target.value)} placeholder="invoice, delivered by…" />
+                  </label>
+                </>
+              ) : (
+                <div className="grid grid-cols-[1fr_1.4fr] gap-2">
+                  <label className="flex min-w-0 flex-col gap-1">
+                    <span className="field-label">{mode === "count" ? `Counted (${item.unit})` : `Amount (${item.unit})`}</span>
+                    <input autoFocus className="input-sm font-mono" inputMode="decimal" value={amount} onChange={(e) => setAmount(decimalInput(e.target.value, 3))} placeholder="0" />
+                  </label>
+                  <label className="flex min-w-0 flex-col gap-1">
+                    <span className="field-label">Note (optional)</span>
+                    <input className="input-sm" value={note} onChange={(e) => setNote(e.target.value)} placeholder={mode === "use" ? "pond, purpose…" : "monthly count"} />
+                  </label>
+                </div>
+              )}
               <div className="flex items-center justify-between gap-2">
-                <span className="font-mono text-[11px] text-tx-muted">
-                  {amount && amountOk ? `${fmtQty(item.quantity)} → ${fmtQty(after)} ${item.unit}` : ""}
+                <span className="flex min-w-0 flex-col font-mono text-[11px] text-tx-muted">
+                  {amount && amountOk ? (
+                    <span>
+                      {inPacks ? `${fmtQty(num(amount))} × ${fmtQty(size)} = ${fmtQty(amt)} ${item.unit} · ` : ""}
+                      {`${fmtQty(item.quantity)} → ${fmtQty(after)} ${item.unit}`}
+                    </span>
+                  ) : null}
+                  {mode === "receive" && amountOk && paid > 0 ? <span>{`${rupiah(paid / amt)}/${item.unit}`}</span> : null}
                 </span>
                 <button
                   type="button"
-                  disabled={!amountOk || busy || (mode === "use" && after < 0)}
-                  onClick={() =>
-                    run(
-                      () => api.addInventoryMovement(item.id, { kind: mode, amount: amt, note: note.trim() || null }),
-                      onChanged,
-                    )
-                  }
+                  disabled={!amountOk || busy || (mode === "use" && after < 0) || (inPacks && !(size > 0))}
+                  onClick={() => run(() => api.addInventoryMovement(item.id, body()), onChanged)}
                   className="rounded-md bg-accent px-3 py-1.5 text-xs font-bold text-accent-ink disabled:opacity-40"
                 >
                   {busy ? "Saving…" : mode === "receive" ? "Add to stock" : mode === "use" ? "Take from stock" : "Set amount"}
@@ -219,10 +291,13 @@ export function ItemRow({
                     {d > 0 ? "+" : ""}
                     {fmtQty(d)}
                   </span>
-                  <span className="min-w-0 flex-grow truncate text-[11px] text-tx-soft">
-                    {KIND_LABEL[m.kind] ?? m.kind}
-                    {m.note ? ` · ${m.note}` : ""}
-                    <span className="text-tx-faint"> · {m.created_by?.split("@")[0] ?? "—"}</span>
+                  <span className="flex min-w-0 flex-grow flex-col">
+                    <span className="truncate text-[11px] text-tx-soft">
+                      {KIND_LABEL[m.kind] ?? m.kind}
+                      {m.note ? ` · ${m.note}` : ""}
+                      <span className="text-tx-faint"> · {m.created_by?.split("@")[0] ?? "—"}</span>
+                    </span>
+                    {delivery(m, item.unit) ? <span className="font-mono text-[10px] text-tx-dim">{delivery(m, item.unit)}</span> : null}
                   </span>
                   <span className="shrink-0 text-[10px] text-tx-faint">{timeAgo(m.created_at)}</span>
                 </div>
@@ -244,6 +319,16 @@ export function ItemRow({
       ) : null}
     </div>
   );
+}
+
+/** "26 sack × 25 kg · Rp 11,960,000 (Rp 18,400/kg) · Mas Congwi", or "" when a receive says nothing more. */
+function delivery(m: InventoryMovement, unit: string): string {
+  if (m.kind !== "receive") return "";
+  const parts: string[] = [];
+  if (m.pack_unit && m.pack_count && m.pack_size) parts.push(`${fmtQty(m.pack_count)} ${m.pack_unit} × ${fmtQty(m.pack_size)} ${unit}`);
+  if (m.total_cost) parts.push(`${rupiah(m.total_cost)}${m.unit_cost ? ` (${rupiah(m.unit_cost)}/${unit})` : ""}`);
+  if (m.supplier) parts.push(m.supplier);
+  return parts.join(" · ");
 }
 
 function ActionButton({ on, tone, onClick, children }: { on: boolean; tone: string; onClick: () => void; children: React.ReactNode }) {
