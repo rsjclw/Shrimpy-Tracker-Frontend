@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 
-import { TrendChart, type ChartEvent, type ChartSeries, type Layers, type Pt, type Target } from "@/components/trends/TrendChart";
+import { TrendChart, type ChartEvent, type ChartSeries, type Layers, type MoltRange, type Pt, type Target } from "@/components/trends/TrendChart";
 import { Banner, Loading } from "@/components/ui/Field";
 import { Icon } from "@/components/ui/Icon";
 import { PageColumn, PageHeader } from "@/components/ui/PageHeader";
@@ -70,7 +70,7 @@ export default function TrendsPage() {
   const [custom, setCustom] = useState<[number, number] | null>(null);
   // Trailing moving-average window in days; 1 shows raw readings.
   const [smooth, setSmooth] = useState(1);
-  const [layers, setLayers] = useState<Layers>({ targets: true, safe: true, events: true, molt: false, gaps: false });
+  const [layers, setLayers] = useState<Layers>({ targets: true, safe: true, events: true, molt: true, gaps: false });
   const [overlay, setOverlay] = useState(false);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [compareOpen, setCompareOpen] = useState(false);
@@ -301,15 +301,19 @@ export default function TrendsPage() {
   }
 
   // Molt windows across the visible range.
-  const moltRanges: [number, number][] = [];
+  const moltRanges: MoltRange[] = [];
   if (layers.molt) {
     let start: number | null = null;
+    let kind: "full" | "new" | null = null;
     for (let x = from; x <= to + 1; x++) {
-      const on = x <= to && moonOn(dateAtX(x)).window !== null;
-      if (on && start === null) start = x;
-      if (!on && start !== null) {
-        moltRanges.push([start, x - 1]);
+      const w = x <= to ? moonOn(dateAtX(x)).window : null;
+      if (start !== null && w !== kind) {
+        moltRanges.push([start, x - 1, kind as "full" | "new"]);
         start = null;
+      }
+      if (w !== null && start === null) {
+        start = x;
+        kind = w;
       }
     }
   }
@@ -595,7 +599,7 @@ export default function TrendsPage() {
               ["targets", "Targets", "from cycle settings"],
               ["safe", "Safe ranges", "water, vibrio, total plankton"],
               ["events", "Events", "sampling, harvest"],
-              ["molt", "Molt windows", "around full & new moon"],
+              ["molt", "Molt windows", "brighter full moon, darker new moon"],
               ["gaps", "Connect gaps", "join missing readings"],
             ] as [keyof Layers, string, string][]
           ).map(([k, label, sub]) => (

@@ -36,7 +36,14 @@ export type ChartSeries = {
 export type Target = { metric: string; value: number; label: string };
 export type ChartEvent = { x: number; kind: "S" | "H"; color: string; text: string };
 
-export type Layers = { targets: boolean; safe: boolean; events: boolean; molt: boolean; gaps: boolean };
+export type MoltRange = [number, number, "full" | "new"];
+
+const MOLT_FILL = {
+  full: { fill: "#F5E6B8", opacity: 0.13, label: "Full" },
+  new: { fill: "#5E73B0", opacity: 0.2, label: "New" },
+};
+
+export type Layers ={ targets: boolean; safe: boolean; events: boolean; molt: boolean; gaps: boolean };
 
 function niceTicks(lo: number, hi: number, target: number) {
   const range = hi - lo;
@@ -92,7 +99,7 @@ export function TrendChart({
   layers: Layers;
   targets: Target[];
   events: ChartEvent[];
-  moltRanges: [number, number][];
+  moltRanges: MoltRange[];
   /** Pond preparation before stocking, shaded under the lines. */
   prepRanges?: [number, number][];
   xLabel: (x: number) => string;
@@ -167,9 +174,18 @@ export function TrendChart({
                   ) : null,
                 )}
                 {layers.molt
-                  ? moltRanges.map(([a, b], i) => (
-                      <rect key={i} x={xpx(Math.max(from, a - 0.5))} y={6} width={Math.max(2, ((Math.min(to, b + 0.5) - Math.max(from, a - 0.5)) / span) * PW)} height={108} fill="#F5E6B8" opacity={0.06} />
-                    ))
+                  ? moltRanges.map(([a, b, kind], i) => {
+                      const m = MOLT_FILL[kind];
+                      const x0 = xpx(Math.max(from, a - 0.5));
+                      return (
+                        <g key={`molt${i}`}>
+                          <rect x={x0} y={6} width={Math.max(2, ((Math.min(to, b + 0.5) - Math.max(from, a - 0.5)) / span) * PW)} height={108} fill={m.fill} opacity={m.opacity} />
+                          <text x={x0 + 4} y={16} fontSize={9} fill={m.fill} opacity={0.85}>
+                            {m.label}
+                          </text>
+                        </g>
+                      );
+                    })
                   : null}
                 {group.map((lane) => (
                   <LaneBody key={lane.key} lane={lane} from={from} to={to} xpx={xpx} layers={layers} targets={targets} cursor={cx} />
