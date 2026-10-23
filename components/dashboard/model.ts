@@ -152,6 +152,36 @@ export function sessionTimesFor(firstFeed: string | null | undefined, count = 4)
   });
 }
 
+/** Which of the pond's feeds (0 = the first) a feed time is: the nearest of its session times. */
+export function feedSlot(time: string, sessionTimes: string[]): number | null {
+  const minutes = (t: string) => {
+    const m = /^(\d{1,2}):(\d{2})/.exec(t);
+    return m ? Number(m[1]) * 60 + Number(m[2]) : null;
+  };
+  const at = minutes(time);
+  if (at === null || !sessionTimes.length) return null;
+  let best = 0;
+  sessionTimes.forEach((s, i) => {
+    if (Math.abs((minutes(s) ?? 0) - at) < Math.abs((minutes(sessionTimes[best]) ?? 0) - at)) best = i;
+  });
+  return best;
+}
+
+/**
+ * A day's additives by feed, `[slot]` as `feedSlot` numbers them: by time, so a feed
+ * removed for a harvest does not shift the rest. On 2026-10-22 A1's 06:00 and 10:00
+ * feeds were deleted, and the next day's 06:00 feed got the 14:00 feed's additives.
+ * By the order of the day only when two feedings share a slot, as the farm agent does.
+ */
+export function additivesBySlot(list: Feeding[], sessionTimes: string[]): FeedingAdditive[][] {
+  const sorted = sortFeedings(list);
+  const slots = sorted.map((f) => feedSlot(hhmm(f.feed_time), sessionTimes));
+  if (slots.some((s) => s === null) || new Set(slots).size !== slots.length) return sorted.map((f) => f.additives);
+  const out: FeedingAdditive[][] = sessionTimes.map(() => []);
+  sorted.forEach((f, i) => (out[slots[i] as number] = f.additives));
+  return out;
+}
+
 /** Reasons a pond needs attention today: readings outside their safe range. Missed feeds show on the schedule only. */
 export function alertsFor(day: DayView | null): string[] {
   const w = day?.water;

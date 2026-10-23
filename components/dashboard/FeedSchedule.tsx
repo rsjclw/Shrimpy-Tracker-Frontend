@@ -9,6 +9,8 @@ import { docFor, hhmm, nowHHMM } from "@/lib/dates";
 import { fmtNum, num } from "@/lib/num";
 import {
   additiveLabel,
+  additivesBySlot,
+  feedSlot,
   feedStatuses,
   feedTypeLabel,
   isSlowTray,
@@ -91,11 +93,13 @@ export function FeedSchedule({
     return { fedTypes: fed, defaultTypes: running };
   }, [day.feedings, day.default_feed_types, prevFeedDay]);
 
+  const sessionTimes = useMemo(() => sessionTimesFor(pond.default_feed_time), [pond.default_feed_time]);
   /**
-   * The previous day's additives, feed by feed. Each feed has its own (the morning
-   * and the evening feed can differ), so a new feed i starts with feed i's.
+   * The previous day's additives, feed by feed (by time slot). Each feed has its own
+   * (the morning and the evening feed can differ), so a new 14:00 feed starts with the
+   * 14:00 feed's, even when the day before had no 06:00 feed.
    */
-  const prevAdditives = useMemo(() => (prevFeedDay ? sortFeedings(prevFeedDay.feedings).map((f) => f.additives) : []), [prevFeedDay]);
+  const prevAdditives = useMemo(() => (prevFeedDay ? additivesBySlot(prevFeedDay.feedings, sessionTimes) : []), [prevFeedDay, sessionTimes]);
 
   function begin(rows: FeedRow[], mode: "plain" | "fi" | "predict" = "plain") {
     setError(null);
@@ -209,7 +213,12 @@ export function FeedSchedule({
               {perms.canAdd ? (
                 <div className="grid grid-cols-2 gap-1.5">
                   <QuickButton onClick={() => begin([], "fi")}>Daily feed</QuickButton>
-                  <QuickButton onClick={() => begin([blankRow(hhmm(pond.default_feed_time) || "06:00", defaultTypes, prevAdditives[0] ?? [])])}>
+                  <QuickButton
+                    onClick={() => {
+                      const time = hhmm(pond.default_feed_time) || "06:00";
+                      begin([blankRow(time, defaultTypes, prevAdditives[feedSlot(time, sessionTimes) ?? 0] ?? [])]);
+                    }}
+                  >
                     Add manually
                   </QuickButton>
                 </div>
@@ -228,11 +237,11 @@ export function FeedSchedule({
           products={products}
           defaultTypes={defaultTypes}
           prevAdditives={prevAdditives}
-          sessionTimes={sessionTimesFor(pond.default_feed_time)}
+          sessionTimes={sessionTimes}
           prevTotal={prevFeedDay ? { label: `${relLabel(prevFeedDay)} ${fmtNum(prevFeedDay.feedings.reduce((t, f) => t + num(f.amount_kg), 0), 1)} kg`, rows: copiedRows } : null}
           prevFi={
             prevFi
-              ? { label: `${relLabel(prevFi)} ${num(prevFi.metrics.feeding_index).toFixed(3)}`, value: num(prevFi.metrics.feeding_index).toFixed(3), types: lastFed(prevFi), additives: sortFeedings(prevFi.feedings).map((f) => f.additives) }
+              ? { label: `${relLabel(prevFi)} ${num(prevFi.metrics.feeding_index).toFixed(3)}`, value: num(prevFi.metrics.feeding_index).toFixed(3), types: lastFed(prevFi), additives: additivesBySlot(prevFi.feedings, sessionTimes) }
               : null
           }
           defaultRatios={ratiosDefault}

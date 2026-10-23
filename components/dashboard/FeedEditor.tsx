@@ -5,7 +5,7 @@ import { useMemo, useState } from "react";
 import type { Cycle, DayView, Feeding, FeedingAdditive, FeedingFeedType, Product } from "@/lib/api";
 import { fmt24, hhmm } from "@/lib/dates";
 import { decimalInput, fmtInt, intInput, num } from "@/lib/num";
-import { feedTypeLabel, type DayKind } from "./model";
+import { feedSlot, feedTypeLabel, type DayKind } from "./model";
 import { PredictPanel } from "./PredictPanel";
 
 export type FeedRow = {
@@ -72,7 +72,7 @@ export function rowFromFeeding(f: Feeding, locked: boolean, fallback: FeedingFee
 /**
  * A fresh row, seeded from what the pond was last fed (a mix included) and from the
  * additives, with their doses, of the same feed the day before: each feed of the day
- * has its own, so feed 1 takes feed 1's.
+ * has its own, so the 06:00 feed takes the 06:00 feed's.
  */
 export function blankRow(time: string, types: FeedingFeedType[], adds: FeedingAdditive[] = []): FeedRow {
   return {
@@ -125,15 +125,15 @@ export function FeedEditor({
   prevTotal: { label: string; rows: () => FeedRow[] } | null;
   /**
    * That day's feeding index, what its last feeding was fed, and each of its feeds'
-   * additives in order. Picking it puts that feed on every feed it rebuilds, and feed
-   * i's additives on feed i.
+   * additives by time slot. Picking it puts that feed on every feed it rebuilds, and
+   * each feed's additives on the feed at the same time.
    */
   prevFi: { label: string; value: string; types: FeedingFeedType[]; additives: FeedingAdditive[][] } | null;
   defaultRatios: string[];
   maxFi: number | null;
   /** Dose each entry is currently on in this cycle (catalog id -> amount), for pre-filling. */
   doses: Record<string, string>;
-  /** The previous day's additives, feed by feed: a new feed i starts with feed i's. */
+  /** The previous day's additives by time slot (`additivesBySlot`): a new feed starts with its slot's. */
   prevAdditives: FeedingAdditive[][];
   canManage: boolean;
   saving: boolean;
@@ -158,6 +158,8 @@ export function FeedEditor({
   const [predictOpen, setPredictOpen] = useState(initialMode === "predict");
 
   const locked = rows.filter((r) => r.locked);
+  /** The additives a feed at `time` had the day before; `fallback` is the slot when there is no time yet. */
+  const additivesAt = (bySlot: FeedingAdditive[][], time: string, fallback: number) => bySlot[feedSlot(time, sessionTimes) ?? fallback] ?? [];
   const pop = day.metrics.estimated_population ?? 0;
   const doc = day.metrics.doc;
   const canPredict = kind !== "past" && canManage;
@@ -186,8 +188,8 @@ export function FeedEditor({
   /**
    * Rebuild unlocked rows from the daily total and per-feed ratios; last feed takes the
    * rounding remainder. With `prev`, every rebuilt row is put on its feed as a feed
-   * nobody picked (so it is saved following the previous feed), and row i gets that
-   * day's feed i additives.
+   * nobody picked (so it is saved following the previous feed), and gets the additives
+   * that day's feed at the same time had.
    */
   function applyDaily(next: FiState, prev?: { types: FeedingFeedType[]; additives: FeedingAdditive[][] }) {
     setFiState(next);
@@ -199,12 +201,13 @@ export function FeedEditor({
       const editable = current.filter((r) => !r.locked);
       let used = 0;
       const rebuilt = ratios.map((r, i) => {
-        const base = editable[i] ?? blankRow(sessionTimes[i] ?? "", defaultTypes, prevAdditives[locked.length + i] ?? []);
+        const time = sessionTimes[i] ?? "";
+        const base = editable[i] ?? blankRow(time, defaultTypes, additivesAt(prevAdditives, time, locked.length + i));
         let kg = i === ratios.length - 1 ? daily - used : Math.round(daily * (r / 100) * 10) / 10;
         kg = Math.max(0, Math.round(kg * 10) / 10);
         used += kg;
         const row = { ...base, time: base.time || sessionTimes[i] || "", kg: String(kg) };
-        return prev ? { ...row, ...typeChoice(prev.types), inherited: true, ...additiveChoice(prev.additives[locked.length + i] ?? []) } : row;
+        return prev ? { ...row, ...typeChoice(prev.types), inherited: true, ...additiveChoice(additivesAt(prev.additives, row.time, locked.length + i)) } : row;
       });
       return [...current.filter((r) => r.locked), ...rebuilt];
     });
@@ -470,9 +473,10 @@ export function FeedEditor({
         type="button"
         onClick={() => {
           // A new feed continues the feed type of the one above it, a mix included, and takes the
-          // additives of the same feed the day before; the first starts from the previous feed.
+          // additives the next time slot had the day before; the first starts from the previous feed.
           const last = rows.at(-1);
-          const next = blankRow("", defaultTypes, prevAdditives[rows.length] ?? []);
+          const after = last ? feedSlot(last.time, sessionTimes) : -1;
+          const next = blankRow("", defaultTypes, prevAdditives[after === null ? rows.length : after + 1] ?? []);
           setRows((rs) => [...rs, last ? { ...next, feedTypeId: last.feedTypeId, mix: last.mix, inherited: last.inherited } : next]);
         }}
         className="flex items-center justify-center gap-1.5 rounded-[10px] border border-dashed border-line-dash p-2.5 text-xs font-semibold text-accent"
