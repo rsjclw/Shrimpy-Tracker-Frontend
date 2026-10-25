@@ -4,19 +4,12 @@ import { useState } from "react";
 
 import { Button } from "@/components/ui/Button";
 import { api, type BlindFeedingTemplate, type Cycle } from "@/lib/api";
-import { cycleLabel, prepDay } from "@/lib/cycles";
+import { cycleLabel, prepDay, stockingDue } from "@/lib/cycles";
 import { addDays, daysBetween, niceDate, todayIso } from "@/lib/dates";
 import { StockForm } from "./StockForm";
 
 function errorText(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
-}
-
-/** "in 8 days" / "today" / "3 days ago" for the planned stocking day. */
-export function stockingDue(planned: string, today: string): string {
-  const until = daysBetween(today, planned);
-  if (until === 0) return "today";
-  return until > 0 ? `in ${until} day${until === 1 ? "" : "s"}` : `${-until} day${until === -1 ? "" : "s"} overdue`;
 }
 
 /** A pond being prepared: its preparation day, the planned stocking day, and the way to stock it or call it off. */

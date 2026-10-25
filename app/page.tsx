@@ -14,7 +14,7 @@ import { PrepPondCard } from "@/components/dashboard/PrepPondCard";
 import { Banner } from "@/components/ui/Field";
 import { Icon } from "@/components/ui/Icon";
 import { api, type Cycle, type DayView, type Farm, type Grid, type Pond, type Product } from "@/lib/api";
-import { byStartDesc, currentCycle, cycleDay, cycleFloor, cycleLabel, isPreparing, isReopened, statusLabel } from "@/lib/cycles";
+import { byStartDesc, currentCycle, cycleDay, cycleFloor, cycleLabel, inPreparation, isReopened, statusLabel } from "@/lib/cycles";
 import { niceDate, todayIso } from "@/lib/dates";
 import { canManage } from "@/lib/roles";
 import { useRequireUser } from "@/lib/session";
@@ -148,9 +148,9 @@ export default function Dashboard() {
   const active = gridPonds
     .map((p) => ({ pond: p, cycle: data ? currentCycle(data.cycles, p.id) : null }))
     .filter((x): x is { pond: Pond; cycle: Cycle } => !!x.cycle)
-    .sort((a, b) => Number(isPreparing(a.cycle)) - Number(isPreparing(b.cycle)));
+    .sort((a, b) => Number(inPreparation(a.cycle, today)) - Number(inPreparation(b.cycle, today)));
   const inactive = gridPonds.filter((p) => !active.some((a) => a.pond.id === p.id));
-  const preparing = active.filter((a) => isPreparing(a.cycle)).length;
+  const preparing = active.filter((a) => inPreparation(a.cycle, today)).length;
 
   // Fetches today's whole card window (not just today) so it is the same single request the pond card needs.
   // A reopened cycle's "today" is its end date.
@@ -186,7 +186,7 @@ export default function Dashboard() {
         stats[f] ??= { active: 0, ponds: 0 };
         stats[f].ponds += 1;
         const current = currentCycle(cycles, p.id);
-        if (current && !isPreparing(current)) stats[f].active += 1;
+        if (current && !inPreparation(current, today)) stats[f].active += 1;
       });
       (farms ?? []).forEach((f) => (stats[f.id] ??= { active: 0, ponds: 0 }));
       setFarmStats(stats);
@@ -341,7 +341,7 @@ export default function Dashboard() {
 
           <div className="flex flex-col gap-3.5">
             {active.map(({ pond, cycle }) =>
-              isPreparing(cycle) ? (
+              inPreparation(cycle, today) ? (
                 <PrepPondCard
                   key={`${pond.id}:prep`}
                   pond={pond}

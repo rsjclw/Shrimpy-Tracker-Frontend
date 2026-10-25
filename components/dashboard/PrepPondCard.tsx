@@ -3,12 +3,12 @@
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 
-import { stockingDue } from "@/components/pond-settings/PrepCard";
 import { Banner, Spinner } from "@/components/ui/Field";
 import { Icon } from "@/components/ui/Icon";
 import { api, type Cycle, type DayView, type FarmRole, type Pond, type Product } from "@/lib/api";
-import { cycleFloor, cycleLabel, prepDay } from "@/lib/cycles";
-import { nowHHMM } from "@/lib/dates";
+import { cycleFloor, cycleLabel, isStockedAhead, prepDay, stockingDue } from "@/lib/cycles";
+import { niceDate, nowHHMM } from "@/lib/dates";
+import { fmtInt } from "@/lib/num";
 import { cachedDay, windowFor } from "@/lib/dayViews";
 import { canAdd, canManage } from "@/lib/roles";
 import { DayNavigator, kindOf } from "./DayNavigator";
@@ -20,7 +20,8 @@ import { Bacteria, Plankton, WaterQuality, type WaterCtx } from "./WaterPanels";
 
 /**
  * A pond being prepared for stocking: counted in preparation days, logging only water and
- * treatments. No feed, sampling or harvest until it is stocked (pond settings, or Stock pond here).
+ * treatments. No feed, sampling or harvest until it is stocked (pond settings, or Stock pond here),
+ * or, when stocked ahead, until its stocking day comes.
  */
 export function PrepPondCard({
   pond,
@@ -129,7 +130,18 @@ export function PrepPondCard({
         <>
           <div className="flex flex-col gap-2 px-[18px] pb-3.5">
             <DayNavigator startDate={floor} viewDate={viewDate} today={today} maxDate={maxDate} onChange={setViewDate} dayNote="" docLabel="Prep day" docShort="P" />
-            {perms.canManage ? (
+            {isStockedAhead(cycle, today) ? (
+              <div className="flex items-center gap-2 rounded-[10px] border border-violet/40 px-3 py-2.5 text-sm">
+                <span className="min-w-0 flex-grow text-tx">
+                  Stocking {niceDate(cycle.start_date)} · {fmtInt(cycle.initial_population)} shrimp
+                </span>
+                {perms.canManage ? (
+                  <Link href={`/ponds/${pond.id}/settings?stock=1`} className="shrink-0 font-bold text-violet hover:text-violet">
+                    Edit
+                  </Link>
+                ) : null}
+              </div>
+            ) : perms.canManage ? (
               <Link
                 href={`/ponds/${pond.id}/settings?stock=1`}
                 className="flex items-center justify-center rounded-[10px] bg-accent px-3 py-2.5 text-sm font-bold text-accent-ink hover:text-accent-ink"

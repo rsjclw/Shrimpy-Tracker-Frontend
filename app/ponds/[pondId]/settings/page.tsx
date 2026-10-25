@@ -28,7 +28,7 @@ import { Button } from "@/components/ui/Button";
 import { Banner, ConfirmStrip, Loading } from "@/components/ui/Field";
 import { PageColumn, PageHeader } from "@/components/ui/PageHeader";
 import { api, type BlindFeedingTemplate, type Cycle, type Farm, type Grid, type Pond, type Product } from "@/lib/api";
-import { currentCycle, cycleLabel, isPreparing, isReopened } from "@/lib/cycles";
+import { currentCycle, cycleLabel, inPreparation, isReopened } from "@/lib/cycles";
 import { isoForDoc } from "@/lib/dates";
 import { canManage } from "@/lib/roles";
 import { useRequireUser } from "@/lib/session";
@@ -255,10 +255,10 @@ export default function PondSettingsPage() {
         right={
           <span
             className={`rounded-full border px-2.5 py-1 text-[11px] font-bold tracking-[0.04em] ${
-              activeCycle ? (isPreparing(activeCycle) ? "border-violet text-violet" : "border-accent text-accent") : "border-line text-tx-muted"
+              activeCycle ? (inPreparation(activeCycle) ? "border-violet text-violet" : "border-accent text-accent") : "border-line text-tx-muted"
             }`}
           >
-            {activeCycle ? `${cycleLabel(activeCycle)} · ${isReopened(activeCycle) ? "reopened" : isPreparing(activeCycle) ? "preparing" : "active"}` : "No active cycle"}
+            {activeCycle ? `${cycleLabel(activeCycle)} · ${isReopened(activeCycle) ? "reopened" : inPreparation(activeCycle) ? "preparing" : "active"}` : "No active cycle"}
           </span>
         }
       />

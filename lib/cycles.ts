@@ -1,5 +1,5 @@
 import type { Cycle, PredictionConfig } from "./api";
-import { docFor, todayIso } from "./dates";
+import { daysBetween, docFor, todayIso } from "./dates";
 
 // Cycle statuses: the backend stores free text. The UI writes these.
 // "preparing": the pond is being prepared, not yet stocked. "cancelled": a preparation never stocked.
@@ -19,6 +19,16 @@ export function isPreparing(cycle: Cycle): boolean {
   return cycle.status === "preparing";
 }
 
+/** Stocked ahead: the stocking is recorded but DOC 1 is still to come, so the pond is still being prepared. */
+export function isStockedAhead(cycle: Cycle, today: string = todayIso()): boolean {
+  return isActive(cycle) && !!cycle.prep_start_date && cycle.start_date > today;
+}
+
+/** No shrimp in the pond today, preparing or stocked ahead: only water and treatments are logged. */
+export function inPreparation(cycle: Cycle, today: string = todayIso()): boolean {
+  return isPreparing(cycle) || isStockedAhead(cycle, today);
+}
+
 /** The first day that can hold logs: preparation's first day, or stocking. */
 export function cycleFloor(cycle: Cycle): string {
   return cycle.prep_start_date ?? cycle.start_date;
@@ -27,6 +37,13 @@ export function cycleFloor(cycle: Cycle): string {
 /** "Prep day 1" is the day preparation began. */
 export function prepDay(cycle: Cycle, iso: string): number {
   return docFor(cycle.prep_start_date ?? cycle.start_date, iso);
+}
+
+/** "in 8 days" / "today" / "3 days ago" for the planned stocking day. */
+export function stockingDue(planned: string, today: string): string {
+  const until = daysBetween(today, planned);
+  if (until === 0) return "today";
+  return until > 0 ? `in ${until} day${until === 1 ? "" : "s"}` : `${-until} day${until === -1 ? "" : "s"} overdue`;
 }
 
 /** Finished, then reopened to fill in missing logs: active again, but it keeps the end date it had. */

@@ -4,7 +4,7 @@ import { useState } from "react";
 
 import { Button } from "@/components/ui/Button";
 import { api, type BlindFeedingTemplate, type Cycle } from "@/lib/api";
-import { targetDoc } from "@/lib/cycles";
+import { stockingDue, targetDoc } from "@/lib/cycles";
 import { addDays, daysBetween, isoForDoc, shortDate, todayIso } from "@/lib/dates";
 import { fmtInt, fmtNum, has, num } from "@/lib/num";
 
@@ -53,6 +53,8 @@ export function StockingEditor({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const today = todayIso();
+  // A prepared pond can be stocked ahead: its days stay preparation days until then.
+  const canBeAhead = !!cycle.prep_start_date && !cycle.actual_end_date;
 
   const oldTemplate = templates.find((t) => t.id === cycle.blind_feeding_template_id) ?? null;
   const newTemplate = templates.find((t) => t.id === d.templateId) ?? null;
@@ -63,7 +65,8 @@ export function StockingEditor({
   const keptTargetDoc = targetDoc(cycle);
 
   const errors: string[] = [];
-  if (!d.start || d.start > today) errors.push("Start date must be today or earlier");
+  if (!d.start) errors.push("Pick the start date");
+  else if (d.start > today && !canBeAhead) errors.push("Start date must be today or earlier");
   else if (cycle.prep_start_date && d.start < cycle.prep_start_date) errors.push(`Start date can't be before preparation started (${shortDate(cycle.prep_start_date)})`);
   else if (cycle.actual_end_date && d.start > cycle.actual_end_date) errors.push("Start date must be on or before the cycle's end");
   if (!(Number.isInteger(pop) && pop > 0)) errors.push("Stocked population must be a whole number above 0");
@@ -149,11 +152,14 @@ export function StockingEditor({
           type="date"
           value={d.start}
           min={cycle.prep_start_date ?? undefined}
-          max={cycle.actual_end_date && cycle.actual_end_date < today ? cycle.actual_end_date : today}
+          max={cycle.actual_end_date && cycle.actual_end_date < today ? cycle.actual_end_date : canBeAhead ? undefined : today}
           disabled={choosing}
           onChange={(e) => set({ start: e.target.value })}
           className="input font-mono"
         />
+        {d.start > today && canBeAhead ? (
+          <span className="text-[11px] text-violet">Stocking {stockingDue(d.start, today)}: until then the pond stays in preparation.</span>
+        ) : null}
       </div>
       <div className="grid grid-cols-2 gap-2">
         <div className="flex min-w-0 flex-col gap-1">

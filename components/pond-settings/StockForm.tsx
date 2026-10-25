@@ -4,7 +4,7 @@ import { useState } from "react";
 
 import { Button } from "@/components/ui/Button";
 import { api, type BlindFeedingTemplate, type Cycle } from "@/lib/api";
-import { cycleLabel } from "@/lib/cycles";
+import { cycleLabel, stockingDue } from "@/lib/cycles";
 import { daysBetween, niceDate, todayIso } from "@/lib/dates";
 import { has, num } from "@/lib/num";
 
@@ -13,8 +13,9 @@ function errorText(err: unknown): string {
 }
 
 /**
- * Stocking a pond that was being prepared: the day the shrimp went in becomes DOC 1, with the
+ * Stocking a pond that was being prepared: the day the shrimp go in becomes DOC 1, with the
  * stocked population, initial ABW and blind feeding. The preparation days are measured from it.
+ * The day can be ahead: the pond stays in preparation until then, its blind feeding already planned.
  */
 export function StockForm({
   cycle,
@@ -38,7 +39,7 @@ export function StockForm({
   const [error, setError] = useState<string | null>(null);
 
   const errors: string[] = [];
-  if (!day || day > today) errors.push("Stocking day must be today or earlier");
+  if (!day) errors.push("Pick the stocking day");
   else if (day < prepStart) errors.push("Stocking day can't be before preparation started");
   if (!(Number.isInteger(num(pop)) && num(pop) > 0)) errors.push("Stocked population must be a whole number above 0");
   if (!(has(abw) && num(abw) >= 0)) errors.push("Initial ABW must be a number");
@@ -72,10 +73,15 @@ export function StockForm({
         <label htmlFor="stock-day" className="field-label">
           Stocking day (DOC 1)
         </label>
-        <input id="stock-day" type="date" value={day} min={prepStart} max={today} onChange={(e) => setDay(e.target.value)} className="input font-mono" />
+        <input id="stock-day" type="date" value={day} min={prepStart} onChange={(e) => setDay(e.target.value)} className="input font-mono" />
         {prepDays !== null ? (
           <span className="font-mono text-[11px] text-accent">
             Preparation {niceDate(prepStart)} → {niceDate(day)} ({prepDays} days)
+          </span>
+        ) : null}
+        {day > today ? (
+          <span className="text-[11px] text-violet">
+            Stocking {stockingDue(day, today)}: until then the pond stays in preparation, logging water and treatments. Blind feeding is planned from {niceDate(day)}.
           </span>
         ) : null}
       </div>

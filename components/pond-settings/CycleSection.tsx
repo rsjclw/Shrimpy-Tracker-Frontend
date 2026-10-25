@@ -5,7 +5,7 @@ import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/Button";
 import { CollapsibleSection } from "@/components/ui/Section";
 import { api, type BlindFeedingTemplate, type Cycle, type Pond, type Product } from "@/lib/api";
-import { isPreparing, isReopened, normalizeConfig, pastCycles, prepDay, statusLabel, todayDoc, cycleLabel, nextCycleName } from "@/lib/cycles";
+import { isPreparing, isReopened, isStockedAhead, normalizeConfig, pastCycles, prepDay, statusLabel, stockingDue, todayDoc, cycleLabel, nextCycleName } from "@/lib/cycles";
 import { addDays, daysBetween, docFor, isoForDoc, niceDate, todayIso } from "@/lib/dates";
 import { fmtInt, fmtNum } from "@/lib/num";
 import { FinishPreview, finishBlocked, useFinishCheck } from "./FinishPreview";
@@ -56,7 +56,7 @@ export function CycleSection({
   readOnly: boolean;
   /** Unsaved edits elsewhere on the page, which a reload after an immediate action would drop. */
   pageDirty: boolean;
-  /** Open a preparing cycle's stocking form straight away. */
+  /** Open a preparing cycle's stocking form straight away (a stocked-ahead one's stocking editor). */
   autoStock: boolean;
   onReload: () => Promise<void>;
 }) {
@@ -70,7 +70,9 @@ export function CycleSection({
   const [endDate, setEndDate] = useState(todayIso());
   const [actionBusy, setActionBusy] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
-  const [editingStock, setEditingStock] = useState(false);
+  // Stocked ahead: DOC 1 is still to come, so the cycle can't end yet and its stocking is what gets edited.
+  const ahead = !!cycle && isStockedAhead(cycle);
+  const [editingStock, setEditingStock] = useState(autoStock && ahead && !readOnly);
   const endOk = !!cycle && !!endDate && endDate >= cycle.start_date && endDate <= todayIso();
   // What ending on that day gives, and the end-of-cycle order mistakes to fix first.
   const finishCheck = useFinishCheck(cycle?.id ?? null, endDate, !!confirm && endOk);
@@ -259,6 +261,8 @@ export function CycleSection({
 
   const summary = cycle && isPreparing(cycle)
     ? `${cycleLabel(cycle)} · preparing, day ${prepDay(cycle, todayIso())} · stocking planned ${niceDate(cycle.start_date)}`
+    : cycle && ahead
+    ? `${cycleLabel({ name: draft?.name || cycle.name })} · preparing, day ${prepDay(cycle, todayIso())} · stocking ${niceDate(cycle.start_date)} (${stockingDue(cycle.start_date, todayIso())})`
     : cycle
     ? `${cycleLabel({ name: draft?.name || cycle.name })} · DOC ${todayDoc(cycle)}${draft?.finalDoc ? ` of ${draft.finalDoc}` : ""} · ${draft?.prepDays ?? "0"}d prep · started ${niceDate(cycle.start_date)}`
     : `${prevCycle ? `${cycleLabel(prevCycle)} ${statusLabel(prevCycle.status).toLowerCase()}` : "No cycles yet"}${suggestedName ? ` · ready for ${cycleLabel({ name: suggestedName })}` : ""}`;
@@ -279,10 +283,12 @@ export function CycleSection({
             <div className="flex flex-col gap-2.5 rounded-2xl border border-line bg-ink-850 p-3.5">
               <div className="flex items-baseline justify-between gap-2">
                 <span className="text-lg font-bold text-tx-strong">{cycleLabel({ name: draft.name || cycle.name })}</span>
-                <span className={`text-xs font-bold ${reopened ? "text-warn" : "text-accent"}`}>{reopened ? "Reopened" : "Active"}</span>
+                <span className={`text-xs font-bold ${reopened ? "text-warn" : ahead ? "text-violet" : "text-accent"}`}>
+                  {reopened ? "Reopened" : ahead ? `Stocking ${stockingDue(cycle.start_date, todayIso())}` : "Active"}
+                </span>
               </div>
               <span className="text-xs text-tx-muted">
-                Started {niceDate(cycle.start_date)}
+                {ahead ? `Prep day ${prepDay(cycle, todayIso())} · stocking ${niceDate(cycle.start_date)}` : `Started ${niceDate(cycle.start_date)}`}
                 {finalDocNum && !reopened ? ` · ${Math.max(0, finalDocNum - doc)} days to target` : ""}
               </span>
               {reopened ? (
@@ -295,7 +301,7 @@ export function CycleSection({
                   <div className="h-full rounded-full bg-accent" style={{ width: `${progressPct}%` }} />
                 </div>
                 <div className="flex justify-between font-mono text-[11px] text-tx-dim">
-                  <span>DOC {doc}</span>
+                  <span>{ahead ? `DOC 1 on ${niceDate(cycle.start_date)}` : `DOC ${doc}`}</span>
                   <span>{finalDocNum ? `Target DOC ${finalDocNum}` : "No target DOC set"}</span>
                 </div>
               </div>
@@ -368,7 +374,13 @@ export function CycleSection({
               />
             ) : null}
 
-            {!readOnly && !confirm && !editingStock ? (
+            {ahead && !editingStock ? (
+              <span className="text-[11px] text-tx-faint">
+                Until {niceDate(cycle.start_date)} the pond card logs water and treatments only. Feed, sampling and harvests start on DOC 1, with the blind feeding already planned.
+              </span>
+            ) : null}
+
+            {!readOnly && !confirm && !editingStock && !ahead ? (
               <div className="grid grid-cols-2 gap-2">
                 <Button variant="outline" onClick={() => openConfirm("finish")} className="!text-accent !border-accent">
                   Finish cycle

@@ -8,7 +8,7 @@ import { Icon } from "@/components/ui/Icon";
 import { PageColumn, PageHeader } from "@/components/ui/PageHeader";
 import { Segmented, Toggle } from "@/components/ui/Section";
 import { api, type Cycle, type DayView, type Farm, type Grid, type Pond, type TrendSeries } from "@/lib/api";
-import { byStartDesc, currentCycle, cycleLabel, statusLabel, targetDoc, cycleFloor, prepDay } from "@/lib/cycles";
+import { byStartDesc, currentCycle, cycleLabel, statusLabel, targetDoc, cycleFloor, inPreparation, prepDay } from "@/lib/cycles";
 import { addDays, daysBetween, docFor, isoForDoc, longDate, shortDate, todayIso, weekday } from "@/lib/dates";
 import { METRIC_DEFS, METRIC_GROUPS, backendMetric, metricDef } from "@/lib/metrics";
 import { cumulativeFeed } from "@/lib/feed";
@@ -395,7 +395,7 @@ export default function TrendsPage() {
                   </svg>
                   <span className="text-sm font-semibold">{cycleLabel(c)}</span>
                   <span className="ml-auto font-mono text-[11px] text-tx-faint">
-                    {c.status === "preparing"
+                    {inPreparation(c, today)
                       ? `preparing · day ${prepDay(c, today)}`
                       : c.initial_population === null
                       ? `${statusLabel(c.status).toLowerCase()} · ${prepDay(c, c.actual_end_date ?? today)} prep days`
@@ -576,7 +576,7 @@ export default function TrendsPage() {
                           </svg>
                           <span className={`whitespace-nowrap text-xs font-semibold ${isView || on ? "text-tx-strong" : "text-tx-soft"}`}>
                             {cycleLabel(c)}
-                            {isView ? " · viewing" : c.status === "preparing" ? " · preparing" : c.status === "active" ? (c.actual_end_date ? " · reopened" : " · now") : c.status === "crashed" ? " · crashed" : ""}
+                            {isView ? " · viewing" : inPreparation(c, today) ? " · preparing" : c.status === "active" ? (c.actual_end_date ? " · reopened" : " · now") : c.status === "crashed" ? " · crashed" : ""}
                           </span>
                         </button>
                       );
