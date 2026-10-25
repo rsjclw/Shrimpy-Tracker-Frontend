@@ -1,5 +1,5 @@
 import type { Cycle, PredictionConfig } from "./api";
-import { daysBetween, docFor, todayIso } from "./dates";
+import { addDays, daysBetween, docFor, todayIso } from "./dates";
 
 // Cycle statuses: the backend stores free text. The UI writes these.
 // "preparing": the pond is being prepared, not yet stocked. "cancelled": a preparation never stocked.
@@ -94,10 +94,14 @@ export function pastCycles(cycles: Cycle[], pondId: string): Cycle[] {
   return cycles.filter((c) => c.pond_id === pondId && c.id !== current?.id).sort(byStartDesc);
 }
 
-/** Last day a cycle can be logged: its end date when closed, else today + 30 (planning ahead). */
-export function lastLoggableDoc(cycle: Cycle): number {
-  if (cycle.actual_end_date) return docFor(cycle.start_date, cycle.actual_end_date);
-  return docFor(cycle.start_date, todayIso()) + 30;
+/**
+ * Last day a pond card can step to: the end date of a closed (reopened) cycle; else 30 days ahead
+ * of today, or of the stocking day while that is still to come, or the planned end when further.
+ */
+export function lastViewableDay(cycle: Cycle, today: string): string {
+  if (cycle.actual_end_date) return cycle.actual_end_date;
+  const ahead = addDays(cycle.start_date > today ? cycle.start_date : today, 30);
+  return cycle.planned_end_date && cycle.planned_end_date > ahead ? cycle.planned_end_date : ahead;
 }
 
 /** DOC the cycle is at now; a reopened cycle stays at its end date. */

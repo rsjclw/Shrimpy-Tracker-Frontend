@@ -6,8 +6,8 @@ import { useCallback, useEffect, useState } from "react";
 import { Banner, Spinner } from "@/components/ui/Field";
 import { Icon } from "@/components/ui/Icon";
 import { api, type Cycle, type DayView, type FarmRole, type Pond, type Product } from "@/lib/api";
-import { docFor, isoForDoc, nowHHMM, shortDate } from "@/lib/dates";
-import { cycleDay, cycleLabel, isReopened } from "@/lib/cycles";
+import { docFor, nowHHMM, shortDate } from "@/lib/dates";
+import { cycleDay, cycleLabel, isReopened, lastViewableDay } from "@/lib/cycles";
 import { cachedDay, windowFor } from "@/lib/dayViews";
 import { canAdd, canManage } from "@/lib/roles";
 import { DayNavigator, kindOf } from "./DayNavigator";
@@ -51,7 +51,7 @@ export function PondCard({
   // A reopened cycle (finished, reopened to fill in missing logs) stops at its end date: the card opens there, not on today.
   const reopened = isReopened(cycle);
   const lastDay = cycleDay(cycle, today);
-  const maxDate = reopened && cycle.actual_end_date ? cycle.actual_end_date : isoForDoc(cycle.start_date, docFor(cycle.start_date, today) + 30);
+  const maxDate = lastViewableDay(cycle, today);
   const [viewDate, setViewDate] = useState(lastDay);
   const { day, days, growth, loading, error, reload } = usePondData(cycle, viewDate, maxDate);
   const [logRequest, setLogRequest] = useState<LogKind | null>(null);

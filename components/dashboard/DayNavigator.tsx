@@ -34,10 +34,13 @@ export function DayNavigator({
   dayNote,
   docLabel = "DOC",
   docShort = "D",
+  stockDate,
 }: {
   /** "Prep day" while the pond is being prepared. */
   docLabel?: string;
   docShort?: string;
+  /** Stocked ahead: from this day on the days count as DOC from it; the ones before in docLabel from startDate. */
+  stockDate?: string;
   startDate: string;
   viewDate: string;
   today: string;
@@ -51,9 +54,13 @@ export function DayNavigator({
 
   const kind = kindOf(viewDate, today);
   const style = KIND_STYLE[kind];
-  const doc = docFor(startDate, viewDate);
-  const maxDoc = docFor(startDate, maxDate);
-  const todayDoc = docFor(startDate, today);
+  const numberOf = (iso: string) =>
+    stockDate && iso >= stockDate ? { label: "DOC", short: "D", n: docFor(stockDate, iso) } : { label: docLabel, short: docShort, n: docFor(startDate, iso) };
+  const viewed = numberOf(viewDate);
+  // "Go to" counts in DOC once there is a stocking day to count from.
+  const gotoFrom = stockDate ?? startDate;
+  const gotoLabel = stockDate ? "DOC" : docLabel;
+  const maxDoc = docFor(gotoFrom, maxDate);
   const home = today <= maxDate ? today : maxDate;
 
   function go(iso: string) {
@@ -65,7 +72,7 @@ export function DayNavigator({
   function submitGoto() {
     const n = parseInt(gotoDoc, 10);
     if (!Number.isFinite(n) || n < 1 || n > maxDoc) return;
-    go(isoForDoc(startDate, n));
+    go(isoForDoc(gotoFrom, n));
     setGotoDoc("");
     setPickerOpen(false);
   }
@@ -102,7 +109,9 @@ export function DayNavigator({
           className={`flex min-w-0 flex-grow items-center justify-between gap-2 rounded-xl border px-3 py-2 ${style.bg} ${style.border}`}
         >
           <div className="flex min-w-0 flex-col gap-px text-left">
-            <span className="font-mono text-[17px] font-bold leading-tight text-tx-strong">{docLabel} {doc}</span>
+            <span className="font-mono text-[17px] font-bold leading-tight text-tx-strong">
+              {viewed.label} {viewed.n}
+            </span>
             <span className="whitespace-nowrap text-[11px] text-tx-muted">{longDate(viewDate)}</span>
           </div>
           <div className="flex shrink-0 items-center gap-2">
@@ -144,7 +153,7 @@ export function DayNavigator({
           <div className="grid grid-cols-7 gap-[3px]">
             {cells.map((iso, i) => {
               if (!iso) return <span key={`e${i}`} />;
-              const n = docFor(startDate, iso);
+              const { label, short, n } = numberOf(iso);
               const valid = iso >= startDate && iso <= maxDate;
               const sel = iso === viewDate;
               const isToday = iso === today;
@@ -157,15 +166,15 @@ export function DayNavigator({
                     go(iso);
                     setPickerOpen(false);
                   }}
-                  aria-label={`${longDate(iso)}${valid ? `, DOC ${n}` : ""}`}
+                  aria-label={`${longDate(iso)}${valid ? `, ${label} ${n}` : ""}`}
                   aria-current={sel ? "date" : undefined}
                   className={`flex min-h-9 flex-col items-center justify-center gap-px rounded-lg border py-[5px] ${sel ? `${style.solid} border-transparent` : isToday ? "border-accent" : "border-transparent"}`}
                 >
-                  <span className={`text-[13px] font-semibold ${sel ? "text-accent-ink" : !valid ? "text-tx-off" : n > todayDoc ? "text-tx-faint" : "text-tx"}`}>
+                  <span className={`text-[13px] font-semibold ${sel ? "text-accent-ink" : !valid ? "text-tx-off" : iso > today ? "text-tx-faint" : "text-tx"}`}>
                     {fromIso(iso).getDate()}
                   </span>
-                  <span className={`font-mono text-[9px] ${sel ? "text-accent-ink" : isToday ? "text-accent" : n > todayDoc ? "text-tx-ghost" : "text-tx-faint"}`}>
-                    {valid ? `${docShort}${n}` : ""}
+                  <span className={`font-mono text-[9px] ${sel ? "text-accent-ink" : isToday ? "text-accent" : iso > today ? "text-tx-ghost" : "text-tx-faint"}`}>
+                    {valid ? `${short}${n}` : ""}
                   </span>
                 </button>
               );
@@ -174,12 +183,12 @@ export function DayNavigator({
           <div className="flex items-end gap-2 border-t border-line pt-2.5">
             <div className="flex min-w-0 flex-grow flex-col gap-1">
               <label htmlFor={`goto-${startDate}`} className="text-[10px] uppercase tracking-[0.05em] text-tx-faint">
-                Go to {docLabel}
+                Go to {gotoLabel}
               </label>
               <input
                 id={`goto-${startDate}`}
                 inputMode="numeric"
-                placeholder={`${docLabel} 1–${maxDoc}`}
+                placeholder={`${gotoLabel} 1–${maxDoc}`}
                 value={gotoDoc}
                 onChange={(e) => setGotoDoc(e.target.value.replace(/[^0-9]/g, ""))}
                 onKeyDown={(e) => e.key === "Enter" && submitGoto()}

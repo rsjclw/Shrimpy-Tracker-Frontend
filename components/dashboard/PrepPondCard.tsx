@@ -6,14 +6,16 @@ import { useCallback, useEffect, useState } from "react";
 import { Banner, Spinner } from "@/components/ui/Field";
 import { Icon } from "@/components/ui/Icon";
 import { api, type Cycle, type DayView, type FarmRole, type Pond, type Product } from "@/lib/api";
-import { cycleFloor, cycleLabel, isStockedAhead, prepDay, stockingDue } from "@/lib/cycles";
-import { niceDate, nowHHMM } from "@/lib/dates";
+import { cycleFloor, cycleLabel, isStockedAhead, lastViewableDay, prepDay, stockingDue } from "@/lib/cycles";
+import { docFor, niceDate, nowHHMM } from "@/lib/dates";
 import { fmtInt } from "@/lib/num";
 import { cachedDay, windowFor } from "@/lib/dayViews";
 import { canAdd, canManage } from "@/lib/roles";
 import { DayNavigator, kindOf } from "./DayNavigator";
+import { FeedSchedule } from "./FeedSchedule";
+import { GrowthStats, type LogKind } from "./GrowthStats";
 import { alertsFor } from "./model";
-import { TreatmentsLog, type LogsCtx } from "./LogsPanel";
+import { SamplingHarvestLog, TreatmentsLog, canLogKind, type LogsCtx } from "./LogsPanel";
 import { PondSummary } from "./PondSummary";
 import { usePondData } from "./usePondData";
 import { Bacteria, Plankton, WaterQuality, type WaterCtx } from "./WaterPanels";
@@ -21,7 +23,8 @@ import { Bacteria, Plankton, WaterQuality, type WaterCtx } from "./WaterPanels";
 /**
  * A pond being prepared for stocking: counted in preparation days, logging only water and
  * treatments. No feed, sampling or harvest until it is stocked (pond settings, or Stock pond here),
- * or, when stocked ahead, until its stocking day comes.
+ * or, when stocked ahead, until its stocking day comes; the days from then on can already be
+ * looked at, with the feed planned for them.
  */
 export function PrepPondCard({
   pond,
@@ -51,10 +54,13 @@ export function PrepPondCard({
   onTodayChanged: () => void;
 }) {
   const floor = cycleFloor(cycle);
-  // Preparation days can be logged up to today; nothing is planned ahead.
-  const maxDate = today;
+  const stockedAhead = isStockedAhead(cycle, today);
+  // Days ahead can be looked at like a stocked pond's; a pond stocked ahead reaches at least
+  // 30 days past its stocking day, so its whole blind feeding plan shows.
+  const maxDate = lastViewableDay(cycle, today);
   const [viewDate, setViewDate] = useState(today);
   const { day, days, growth, loading, error, reload } = usePondData(cycle, viewDate, maxDate);
+  const [logRequest, setLogRequest] = useState<LogKind | null>(null);
 
   useEffect(() => setViewDate(today), [cycle.id, today]);
 
@@ -63,8 +69,11 @@ export function PrepPondCard({
   const alerts = alertsFor(todayDay);
   const now = nowHHMM();
   const kind = kindOf(viewDate, today);
+  // From the stocking day on, a pond stocked ahead has DOC days: feed, growth and sampling as on a stocked pond.
+  const docDay = stockedAhead && viewDate >= cycle.start_date;
+  const viewNumber = docDay ? `DOC ${docFor(cycle.start_date, viewDate)}` : `prep day ${prepDay(cycle, viewDate)}`;
   const status = `Prep day ${prepDay(cycle, today)} · stocking ${stockingDue(cycle.start_date, today)}`;
-  const saveContext = `${farmName} · ${pond.name} · prep day ${prepDay(cycle, viewDate)}`;
+  const saveContext = `${farmName} · ${pond.name} · ${viewNumber}`;
   const todayWindow = todayDay ? [todayDay, ...windowFor(today, floor).slice(1).flatMap((d) => cachedDay(cycle.id, d) ?? [])] : [];
 
   const onSaved = useCallback(() => {
@@ -80,8 +89,9 @@ export function PrepPondCard({
   }, [day, cycle.id, viewDate]);
 
   const trendsHref = (metrics: string) => `/trends?farm=${farmId}&cycle=${cycle.id}&metrics=${metrics}`;
+  const numbering = docDay ? { startDate: cycle.start_date } : { startDate: floor, dayWord: "Prep day", dayShort: "P" };
   const waterCtx: WaterCtx | null = day
-    ? { cycleId: cycle.id, startDate: floor, dayWord: "Prep day", dayShort: "P", days, canEdit: perms.canManage, saveContext, trendsHref, ensureLogId, onSaved }
+    ? { cycleId: cycle.id, ...numbering, days, canEdit: perms.canManage, saveContext, trendsHref, ensureLogId, onSaved }
     : null;
   const logsCtx: LogsCtx | null = day
     ? { cycleId: cycle.id, startDate: cycle.start_date, day, growth, perms, gridId: pond.grid_id, saveContext, userEmail, products, ensureLogId, onSaved }
@@ -129,8 +139,18 @@ export function PrepPondCard({
       {expanded ? (
         <>
           <div className="flex flex-col gap-2 px-[18px] pb-3.5">
-            <DayNavigator startDate={floor} viewDate={viewDate} today={today} maxDate={maxDate} onChange={setViewDate} dayNote="" docLabel="Prep day" docShort="P" />
-            {isStockedAhead(cycle, today) ? (
+            <DayNavigator
+              startDate={floor}
+              stockDate={stockedAhead ? cycle.start_date : undefined}
+              viewDate={viewDate}
+              today={today}
+              maxDate={maxDate}
+              onChange={setViewDate}
+              dayNote={docDay && day && day.feedings.length === 0 ? "Future day — nothing planned yet." : ""}
+              docLabel="Prep day"
+              docShort="P"
+            />
+            {stockedAhead ? (
               <div className="flex items-center gap-2 rounded-[10px] border border-violet/40 px-3 py-2.5 text-sm">
                 <span className="min-w-0 flex-grow text-tx">
                   Stocking {niceDate(cycle.start_date)} · {fmtInt(cycle.initial_population)} shrimp
@@ -156,10 +176,35 @@ export function PrepPondCard({
             {loading || !day || !waterCtx || !logsCtx ? (
               <div className="flex items-center justify-center gap-2 py-10 text-sm text-tx-dim">
                 <Spinner />
-                Loading prep day {prepDay(cycle, viewDate)}…
+                Loading {viewNumber}…
               </div>
             ) : (
               <>
+                {docDay ? (
+                  <>
+                    <FeedSchedule
+                      cycle={cycle}
+                      pond={pond}
+                      saveContext={saveContext}
+                      day={day}
+                      history={days.slice(1)}
+                      kind={kind}
+                      products={products}
+                      perms={perms}
+                      onSaved={onSaved}
+                    />
+                    <GrowthStats
+                      startDate={cycle.start_date}
+                      stocked={cycle.initial_population ?? 0}
+                      day={day}
+                      todayDay={todayDay}
+                      growth={growth}
+                      trendsHref={trendsHref}
+                      canLog={(k) => canLogKind(perms, k)}
+                      onLog={(k) => setLogRequest(k)}
+                    />
+                  </>
+                ) : null}
                 <WaterQuality ctx={waterCtx} />
                 <Plankton ctx={waterCtx} />
                 <Bacteria ctx={waterCtx} />
@@ -169,6 +214,7 @@ export function PrepPondCard({
                     <span className="text-[10px] font-bold uppercase tracking-[0.16em] text-tx-faint">Logs</span>
                     <span className="h-px flex-grow bg-line-strong" />
                   </div>
+                  {docDay ? <SamplingHarvestLog ctx={logsCtx} requested={logRequest} onRequestHandled={() => setLogRequest(null)} /> : null}
                   <TreatmentsLog ctx={logsCtx} kindLabel={kind === "today" ? "today" : "on this day"} />
                 </div>
               </>
